@@ -15,6 +15,9 @@ rm -rf awscliv2.zip aws/ # Curățăm fișierele de instalare
 echo "[*] Creating lab directories in /home/ubuntu/BnB..."
 mkdir -p /home/ubuntu/BnB/scoutsuite
 
+echo "[*] Downloading aws_cloudformation_configuration.yaml from GitHub..."
+curl -sS "https://raw.githubusercontent.com/PadeanuVlad1501/lab_script_repo/main/ScoutSuite_lab/cloudformation_config.yaml" -o "/home/ubuntu/BnB/scoutsuite/cloudformation_config.yaml"
+
 echo "[*] Creating the Python Virtual Environment..."
 cd /home/ubuntu/BnB/scoutsuite
 python3 -m venv venv
