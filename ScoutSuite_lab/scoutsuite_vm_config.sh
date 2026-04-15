@@ -12,11 +12,11 @@ unzip -q awscliv2.zip
 sudo ./aws/install
 rm -rf awscliv2.zip aws/
 
-echo "[*] Downloading aws_cloudformation_configuration.yaml from GitHub..."
-curl -sS "https://raw.githubusercontent.com/PadeanuVlad1501/lab_script_repo/main/ScoutSuite_lab/cloudformation_config.yaml" -o "/home/ubuntu/BnB/ScoutSuite/cloudformation_config.yaml"
-
 echo "[*] Creating lab directories in /home/ubuntu/BnB..."
 mkdir -p /home/ubuntu/BnB/ScoutSuite
+
+echo "[*] Downloading aws_cloudformation_configuration.yaml from GitHub..."
+curl -sS "https://raw.githubusercontent.com/PadeanuVlad1501/lab_script_repo/main/ScoutSuite_lab/cloudformation_config.yaml" -o "/home/ubuntu/BnB/ScoutSuite/cloudformation_config.yaml"
 
 echo "[*] Downloading aws_cloudformation_configuration.yaml from GitHub..."
 curl -sS "https://raw.githubusercontent.com/PadeanuVlad1501/lab_script_repo/main/ScoutSuite_lab/cloudformation_config.yaml" -o "/home/ubuntu/BnB/ScoutSuite/cloudformation_config.yaml"
