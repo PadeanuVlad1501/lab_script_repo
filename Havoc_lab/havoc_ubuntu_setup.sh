@@ -7,7 +7,7 @@ echo "[*] Updating apt..."
 apt-get update -y
 
 echo "[*] Installing minimal dependencies..."
-apt-get install -y git golang cmake make gcc g++ nasm python3 python3-dev python3-websockets \
+sudo apt-get install -y git golang cmake make gcc g++ nasm python3 python3-dev python3-websockets \
     qt6-base-dev qt6-base-private-dev qt6-declarative-dev qt6-declarative-private-dev \
     qt6-tools-dev qt6-tools-private-dev qt6-scxml-dev qt6-svg-dev qt6-websockets-dev \
     libqt6websockets6-dev libfontconfig1-dev libfreetype6-dev libx11-dev libxext-dev \
@@ -17,7 +17,7 @@ apt-get install -y git golang cmake make gcc g++ nasm python3 python3-dev python
     libxcb-xinerama0-dev libxcb-xkb-dev libxkbcommon-dev libxkbcommon-x11-dev
 
 echo "[*] Cleaning up apt cache to free disk space..."
-apt-get clean
+sudo apt-get clean
 
 echo "[*] Creating directory structure in /home/ubuntu/BnB..."
 mkdir -p /home/ubuntu/BnB
