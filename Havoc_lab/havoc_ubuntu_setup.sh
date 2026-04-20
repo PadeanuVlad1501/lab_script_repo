@@ -8,13 +8,14 @@ apt-get update -y
 
 echo "[*] Installing minimal dependencies..."
 sudo apt-get install -y git golang cmake make gcc g++ nasm python3 python3-dev python3-websockets \
-    qt6-base-dev qt6-base-private-dev qt6-declarative-dev qt6-declarative-private-dev \
-    qt6-tools-dev qt6-tools-private-dev qt6-scxml-dev qt6-svg-dev qt6-websockets-dev \
-    libqt6websockets6-dev libfontconfig1-dev libfreetype6-dev libx11-dev libxext-dev \
+    qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools libqt5websockets5-dev qtdeclarative5-dev libqt5svg5-dev \
+    libfontconfig1-dev libfreetype6-dev libx11-dev libxext-dev \
     libxfixes-dev libxi-dev libxrender-dev libxcb1-dev libxcb-glx0-dev libxcb-keysyms1-dev \
     libxcb-image0-dev libxcb-shm0-dev libxcb-icccm4-dev libxcb-sync-dev libxcb-xfixes0-dev \
     libxcb-shape0-dev libxcb-randr0-dev libxcb-render-util0-dev libxcb-util-dev \
     libxcb-xinerama0-dev libxcb-xkb-dev libxkbcommon-dev libxkbcommon-x11-dev
+
+
 
 echo "[*] Cleaning up apt cache to free disk space..."
 sudo apt-get clean
