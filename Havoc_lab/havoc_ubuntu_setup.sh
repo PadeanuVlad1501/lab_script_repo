@@ -14,7 +14,7 @@ cd /opt/havoc-client
 
 # havoc binary archive
 echo "[*] Downloading pre-compiled Havoc-Client framework"
-sudo wget -O havoc-client.tar.gz "https://github.com/PadeanuVlad1501/lab_script_repo/raw/refs/heads/main/Havoc_lab/havoc-client.tar.gz."
+sudo wget -O havoc-client.tar.gz "https://github.com/PadeanuVlad1501/lab_script_repo/raw/refs/heads/main/Havoc_lab/havoc-client.tar.gz"
 
 #  decompressing tar archive
 echo "[*] Extracting resources."
