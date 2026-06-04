@@ -19,7 +19,7 @@ $Password = ConvertTo-SecureString "Password123!" -AsPlainText -Force
 
 # Suppress errors if the user already exists
 $ErrorActionPreference = "SilentlyContinue"
-New-LocalUser -Name "victim" -Password $Password -Description "CTF Vulnerable User"
+New-LocalUser -Name "victim" -Password $Password -Description "Vulnerable User"
 New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList" -Name "victim" -Value 0 -PropertyType DWord -Force
 $ErrorActionPreference = "Continue"
 
