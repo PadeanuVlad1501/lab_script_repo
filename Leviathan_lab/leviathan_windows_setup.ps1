@@ -1,5 +1,5 @@
 # ==============================================================================
-# Windows_Base_Setup.ps1
+# leviathan_windows_setup.ps1
 # ==============================================================================
 
 Write-Host "[*] Preparing base image for Leviathan Lab..."
