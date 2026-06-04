@@ -14,7 +14,7 @@ if (!(Test-Path -Path $LabDir)) {
 
 # Download the Activation Script
 $ScriptUrl = "https://raw.githubusercontent.com/PadeanuVlad1501/lab_script_repo/refs/heads/main/Leviathan_lab/leviathan_lab_start.ps1"
-$OutPath = "$LabDir\leviathan_windows_setup.ps1"
+$OutPath = "$LabDir\leviathan_lab_start.ps1"
 
 Write-Host "[*] Downloading activation script from repository..."
 Invoke-WebRequest -Uri $ScriptUrl -OutFile $OutPath
