@@ -5,7 +5,7 @@
 Write-Host "[*] Preparing base image for Leviathan Lab..."
 
 # Define the location where the student will find the activation script
-$LabDir = "C:\Users\Public\Desktop\Labs\Leviathan"
+$LabDir = "C:\Users\Administrator\Desktop\Labs\Leviathan"
 
 # Create the directory if it doesn't exist
 if (!(Test-Path -Path $LabDir)) {
