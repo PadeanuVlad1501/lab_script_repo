@@ -19,7 +19,7 @@ wget -q -O c2_server.py "https://raw.githubusercontent.com/PadeanuVlad1501/lab_s
 # 4. Clone the Leviathan Framework inside the lab folder
 echo "[*] Cloning Leviathan Framework..."
 if [ ! -d "leviathan_framework" ]; then
-    git clone https://github.com/utgard-teams/leviathan.git leviathan_framework
+    git clone https://github.com/utkusen/leviathan.git leviathan_framework
 fi
 
 # 5. Create and configure the Virtual Environment (venv)
