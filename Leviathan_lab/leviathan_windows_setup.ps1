@@ -4,8 +4,8 @@
 
 Write-Host "[*] Preparing base image for Leviathan Lab..."
 
-# Define the location where the student will find the activation script
-$LabDir = "C:\Users\Public\Desktop\Leviathan"
+# Define the location of the activation script 
+$LabDir = "C:\Users\Public\Desktop\Labs\Leviathan"
 
 # Create the directory if it doesn't exist
 if (!(Test-Path -Path $LabDir)) {
@@ -27,7 +27,6 @@ pip install pyftpdlib
 
 # 4. Stage FTP Server Startup Script
 Write-Host "[*] Staging FTP Server startup script..."
-# Setăm directorul de bază al FTP-ului pe Desktop-ul userului victim
 $FtpScript = "python -m pyftpdlib -p 21 -w -d `"C:\Users\victim\Desktop`" -u `"victim`" -P `"Password123!`""
 Set-Content -Path "$LabDir\start_ftp.bat" -Value $FtpScript
 
