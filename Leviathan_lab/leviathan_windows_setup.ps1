@@ -13,10 +13,16 @@ if (!(Test-Path -Path $LabDir)) {
 }
 
 # 1. Install Python Silently
-Write-Host "[*] Downloading and Installing Python (Silent mode)... This might take a minute."
-$PythonInstaller = "$env:TEMP\python_installer.exe"
-Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe" -OutFile $PythonInstaller
-Start-Process -FilePath $PythonInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait
+if (-not (Get-Command "python" -ErrorAction SilentlyContinue)) {
+    Write-Host "[*] Python nu a fost găsit. Se instalează (Silent mode)..."
+    $PythonInstaller = "$env:TEMP\python_installer.exe"
+    Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe" -OutFile $PythonInstaller
+    Start-Process -FilePath $PythonInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait
+    
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+} else {
+    Write-Host "[*] Python este deja instalat. Se sare peste instalare."
+}
 
 # 2. Refresh Environment Variables so 'pip' works immediately in this session
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
