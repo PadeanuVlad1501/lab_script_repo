@@ -41,20 +41,20 @@ if (Test-Path $SshConfig) {
 }
 
 # Start the FTP Server in the background
-Start-Process -FilePath "C:\Users\Public\Desktop\Labs\Leviathan\start_ftp.bat" -WindowStyle Hidden
+Start-Process -FilePath "C:\Users\Administrator\Desktop\Labs\Leviathan\start_ftp.bat" -WindowStyle Hidden
 
 # 4. Generate the sensitive file for the BITS exfiltration phase
 Write-Host "[*] Staging sensitive data for exfiltration..."
-$LabDir = "C:\Users\victim\Desktop\Labs\LeviathanLab"
-if (!(Test-Path -Path $LabDir)) {
-    New-Item -ItemType Directory -Path $LabDir -Force | Out-Null
+$ExfilDir = "C:\Users\victim\Desktop\Labs\LeviathanLab"
+if (!(Test-Path -Path $ExfilDir)) {
+    New-Item -ItemType Directory -Path $ExfilDir -Force | Out-Null
 }
 
 @"
 admin:Password123!
 db_user:SuperSecretDBPass2026
 root:LeviathanAPT40_hidden
-"@ | Out-File -FilePath "$LabDir\passwords.txt" -Encoding utf8
+"@ | Out-File -FilePath "$ExfilDir\passwords.txt" -Encoding utf8
 
 Write-Host "`n[+] Environment is READY!" -ForegroundColor Green
 Write-Host "================================================================"
