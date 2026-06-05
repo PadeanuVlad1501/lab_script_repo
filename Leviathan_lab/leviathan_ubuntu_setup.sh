@@ -2,10 +2,10 @@
 
 echo "[*] Starting Ubuntu Setup for Leviathan Lab..."
 
-# 1. Update and install core system dependencies (ADDED ncrack and 2to3)
-echo "[*] Installing dependencies (Python3, git, ncrack, 2to3)..."
+# 1. Update and install core system dependencies (Masscan inclus aici)
+echo "[*] Installing dependencies (Python3, git, ncrack, 2to3, masscan)..."
 sudo apt-get update -y
-sudo apt-get install -y python3 python3-pip python3-venv git ncrack 2to3
+sudo apt-get install -y python3 python3-pip python3-venv git ncrack 2to3 masscan
 
 # 2. Create the main Lab Directory
 echo "[*] Creating lab directory at ~/BnB/Leviathan..."
