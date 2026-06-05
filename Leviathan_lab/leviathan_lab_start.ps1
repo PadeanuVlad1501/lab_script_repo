@@ -40,6 +40,9 @@ if (Test-Path $SshConfig) {
     Restart-Service sshd
 }
 
+# Start the FTP Server in the background
+Start-Process -FilePath "C:\Users\Public\Desktop\Labs\Leviathan\start_ftp.bat" -WindowStyle Hidden
+
 # 4. Generate the sensitive file for the BITS exfiltration phase
 Write-Host "[*] Staging sensitive data for exfiltration..."
 $LabDir = "C:\Users\victim\Desktop\Labs\LeviathanLab"
