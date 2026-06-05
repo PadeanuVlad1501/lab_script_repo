@@ -2,10 +2,10 @@
 
 echo "[*] Starting Ubuntu Setup for Leviathan Lab..."
 
-# 1. Update and install core system dependencies
-echo "[*] Installing Python3, pip, git, and python3-venv..."
+# 1. Update and install core system dependencies (ADDED ncrack and 2to3)
+echo "[*] Installing dependencies (Python3, git, ncrack, 2to3)..."
 sudo apt-get update -y
-sudo apt-get install -y python3 python3-pip python3-venv git
+sudo apt-get install -y python3 python3-pip python3-venv git ncrack 2to3
 
 # 2. Create the main Lab Directory
 echo "[*] Creating lab directory at ~/BnB/Leviathan..."
@@ -16,13 +16,17 @@ cd ~/BnB/Leviathan
 echo "[*] Downloading C2 Flask Server..."
 wget -q -O c2_server.py "https://raw.githubusercontent.com/PadeanuVlad1501/lab_script_repo/refs/heads/main/Leviathan_lab/flask_server.py"
 
-# 4. Clone the Leviathan Framework inside the lab folder
+# 4. Clone the Leviathan Framework
 echo "[*] Cloning Leviathan Framework..."
 if [ ! -d "leviathan_framework" ]; then
     git clone https://github.com/utkusen/leviathan.git leviathan_framework
 fi
 
-# 5. Create and configure the Virtual Environment (venv)
+# 5. Convert Python 2 code to Python 3 automatically
+echo "[*] Patching Leviathan code to Python 3..."
+2to3 -w -n leviathan_framework/ > /dev/null 2>&1
+
+# 6. Create and configure the Virtual Environment (venv)
 echo "[*] Setting up Python Virtual Environment..."
 python3 -m venv venv
 
