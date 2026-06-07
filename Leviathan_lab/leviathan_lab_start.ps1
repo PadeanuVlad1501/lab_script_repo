@@ -40,6 +40,9 @@ if (Test-Path $SshConfig) {
     Restart-Service sshd
 }
 
+Write-Host "[*] Opening port 21 in Windows Firewall for FTP (Local Subnet ONLY)..."
+New-NetFirewallRule -DisplayName "Allow Python FTP" -Direction Inbound -LocalPort 21 -Protocol TCP -RemoteAddress LocalSubnet -Action Allow -ErrorAction SilentlyContinue | Out-Null
+
 # Start the FTP Server in the background
 Start-Process -FilePath "C:\Users\Administrator\Desktop\Labs\Leviathan\start_ftp.bat" -WindowStyle Hidden
 
