@@ -46,7 +46,20 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 80
  
 app = Flask(__name__)
- 
+
+class BITSMethodMiddleware:
+    """Rewrite BITS_POST → POST so Werkzeug doesn't reject it,
+    then let the route detect BITS via headers."""
+    def __init__(self, wsgi_app):
+        self.app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        if environ.get("REQUEST_METHOD") == "BITS_POST":
+            environ["REQUEST_METHOD"] = "POST"
+        return self.app(environ, start_response)
+
+app.wsgi_app = BITSMethodMiddleware(app.wsgi_app)
+
 # In-memory dictionary for active BITS sessions
 # { "{GUID}": { filename, filepath, received, total, started, done } }
 bits_sessions: dict = {}
