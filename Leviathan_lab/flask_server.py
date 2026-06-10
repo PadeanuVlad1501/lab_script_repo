@@ -167,7 +167,8 @@ def handle_bits(filename: str):
         logger.warning(f"    Saved in     : {filepath.resolve()}")
  
         r = make_response("", 200)
-        r.headers["BITS-Protocol"]               = "{7df0354d-249b-430f-820d-3d2a9bef4931}"
+        r.headers["BITS-Packet-Type"]            = "Ack"
+        r.headers["BITS-Supported-Protocols"]    = "{7df0354d-249b-430f-820d-3d2a9bef4931}"
         r.headers["BITS-Session-Id"]             = sid
         r.headers["BITS-Received-Content-Range"] = "none"
         r.headers["BITS-Reply-URL"]              = request.url
