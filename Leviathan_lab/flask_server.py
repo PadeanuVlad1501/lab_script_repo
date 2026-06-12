@@ -180,12 +180,18 @@ def handle_bits(filename: str):
         logger.warning(f"    Saved in     : {filepath.resolve()}")
  
         r = make_response("", 200)
-        r.headers["BITS-Packet-Type"]            = "Ack"
-        r.headers["BITS-Supported-Protocols"]    = "{7df0354d-249b-430f-820d-3d2a9bef4931}"
-        r.headers["BITS-Session-Id"]             = sid
-        r.headers["BITS-Received-Content-Range"] = "none"
-        r.headers["BITS-Reply-URL"]              = request.url
-        r.headers["Accept-Ranges"]               = "bytes"
+        r.headers["BITS-Packet-Type"]   = "Ack"
+        # FIX (Bug 1): Must respond with BITS-Protocol (server's choice),
+        # NOT BITS-Supported-Protocols (the client's request header).
+        # Returning the wrong name is what caused 0x8020001b.
+        r.headers["BITS-Protocol"]      = "{7df0354d-249b-430f-820d-3d2a9bef4931}"
+        r.headers["BITS-Session-Id"]    = sid
+        r.headers["Accept-Ranges"]      = "bytes"
+        # FIX (Bug 2): Removed BITS-Received-Content-Range: "none" — this header
+        #   belongs in Fragment Acks only; putting it in the Ping Ack violates the spec.
+        # FIX (Bug 3): Removed BITS-Reply-URL — only used for upload-REPLY jobs.
+        #   For a plain /upload job it tells BITS to make a second "fetch reply" request
+        #   that we never handle, which would cause a second error.
         return r
  
     # ── Phase 3: Close session (Close-Session) ─────────────────
@@ -212,7 +218,9 @@ def handle_bits(filename: str):
                 pass
  
         r = make_response("", 200)
-        r.headers["BITS-Session-Id"] = session_hdr
+        # FIX (Bug 4a): Missing BITS-Packet-Type: Ack on Close-Session response.
+        r.headers["BITS-Packet-Type"] = "Ack"
+        r.headers["BITS-Session-Id"]  = session_hdr
         return r
  
     # ── Phase 2: Data fragment ──────────────────────────────────
@@ -257,10 +265,14 @@ def handle_bits(filename: str):
  
     range_end = received - 1
     r = make_response("", 200)
+    # FIX (Bug 4b): Missing BITS-Packet-Type: Ack on Fragment response.
+    r.headers["BITS-Packet-Type"]            = "Ack"
     r.headers["BITS-Session-Id"]             = sid
-    r.headers["BITS-Received-Content-Range"] = (
-        f"0-{range_end}/{total}" if total else f"0-{range_end}/*"
-    )
+    # FIX (Bug 4c): BITS-Received-Content-Range must be the total bytes received
+    # as a plain decimal (e.g. "1024"), NOT an HTTP Content-Range expression like
+    # "0-1023/4096". The range format is for the client's Content-Range request
+    # header; the server's ack header is just the running byte count.
+    r.headers["BITS-Received-Content-Range"] = str(received)
     return r
  
  
