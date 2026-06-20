@@ -30,8 +30,7 @@ error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 die()     { error "$*"; exit 1; }
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-# Am modificat directorul ca sa se potriveasca cu documentatia (SdbExplorerLab)
-LAB_DIR="$HOME/BnB/SdbExplorerLab"
+LAB_DIR="$HOME/BnB/SdbExplorer"
 
 # ─── patch.sdb ────────────────────────────────────────────────────────────────
 # Option A: Seteaza URL-ul direct catre fisierul patch.sdb pre-compilat din ADK
