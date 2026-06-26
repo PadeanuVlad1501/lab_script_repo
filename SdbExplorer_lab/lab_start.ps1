@@ -23,7 +23,7 @@ New-Item -ItemType Directory -Force -Path $LabDir | Out-Null
 Write-Host "[+] Workspace ready at: $LabDir" -ForegroundColor Green
 
 # 3. Surgical Firewall Rule (Allow outbound ONLY to TCP port 8001)
-Write-Host "`n[*] Injecting surgical Firewall rule (Outbound TCP 8001)..." -ForegroundColor Yellow
+Write-Host "`n[*] Injecting Firewall rule (Outbound TCP 8001)..." -ForegroundColor Yellow
 Remove-NetFirewallRule -DisplayName "SdbLab_Allow_Staging" -ErrorAction SilentlyContinue | Out-Null
 New-NetFirewallRule -DisplayName "SdbLab_Allow_Staging" `
                     -Direction Outbound `
