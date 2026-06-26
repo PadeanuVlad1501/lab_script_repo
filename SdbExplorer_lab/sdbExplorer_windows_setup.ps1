@@ -1,36 +1,47 @@
-# 1. Creating the cleanup/lab directory
-# This path matches the one used in the lab documentation.
+# =============================================================================
+#  windows_setup.ps1 — SdbExplorer Lab | Endpoint Validation v2.0 (Benign)
+# =============================================================================
+
 $LabDir = "$env:USERPROFILE\Desktop\Labs\SdbExplorerLab"
 New-Item -ItemType Directory -Force -Path $LabDir | Out-Null
-Write-Host "[+] Lab directory successfully created at: $LabDir" -ForegroundColor Green
+Write-Host "[+] Directorul de lab creat la: $LabDir" -ForegroundColor Green
 
-# 2. Checking Windows Defender status (Real-Time Protection)
-# This ensures evil.dll is not quarantined upon download.
-Write-Host "[*] Checking Windows Defender..." -ForegroundColor Cyan
-$defenderStatus = Get-MpPreference
-if ($defenderStatus.DisableRealtimeMonitoring -eq $true) {
-    Write-Host "[+] SUCCESS: Windows Defender Real-Time Protection is DISABLED." -ForegroundColor Green
+# 1. Verificare existență SysWOW64 (Vital pentru noul vector de atac)
+Write-Host "`n[*] Se verifică suportul WoW64..." -ForegroundColor Cyan
+$targetApp = "C:\Windows\SysWOW64\notepad.exe"
+if (Test-Path $targetApp) {
+    Write-Host "[+] SUCCES: 32-bit notepad.exe este prezent." -ForegroundColor Green
 } else {
-    Write-Host "[-] CRITICAL ERROR: Windows Defender is still active! Disable it via Group Policy or Registry before distributing the VM." -ForegroundColor Red
+    Write-Host "[-] EROARE CRITICĂ: SysWOW64\notepad.exe lipsește! Lab-ul cere un Windows pe 64-bit." -ForegroundColor Red
 }
 
-# 3. Checking Firewall rules (Outbound)
-Write-Host "[*] Checking Outbound Firewall rules..." -ForegroundColor Cyan
+# 2. Verificare Windows Defender 
+# (Chiar și un DLL benign injectat prin sdbinst poate declanșa euristica LotL)
+Write-Host "`n[*] Verificare status Windows Defender..." -ForegroundColor Cyan
+$defenderStatus = Get-MpPreference
+if ($defenderStatus.DisableRealtimeMonitoring -eq $true) {
+    Write-Host "[+] SUCCES: Windows Defender Real-Time Protection este DEZACTIVAT." -ForegroundColor Green
+} else {
+    Write-Host "[-] AVERTISMENT: Windows Defender este activ. Ar putea bloca sdbinst.exe." -ForegroundColor Yellow
+    Write-Host "    Recomandare: Dezactivați Real-Time protection din VM înainte de distribuire." -ForegroundColor DarkYellow
+}
+
+# 3. Verificare reguli Firewall Outbound (Doar port 8001/HTTP necesar acum)
+Write-Host "`n[*] Verificare Firewall Outbound (pentru download-ul de pe Ubuntu)..." -ForegroundColor Cyan
 $firewallProfiles = Get-NetFirewallProfile
 $allOutboundAllowed = $true
 
 foreach ($profile in $firewallProfiles) {
     if ($profile.Enabled -eq $true -and $profile.DefaultOutboundAction -ne "Allow") {
-        Write-Host "[-] WARNING: The $($profile.Name) profile has restrictive Outbound rules ($($profile.DefaultOutboundAction))." -ForegroundColor Yellow
+        Write-Host "[-] AVERTISMENT: Profilul '$($profile.Name)' blochează conexiunile outbound." -ForegroundColor Yellow
         $allOutboundAllowed = $false
     }
 }
 
 if ($allOutboundAllowed) {
-    # Ports 8001 (HTTP) and 4444 (Reverse Shell) are required for the attack to succeed.
-    Write-Host "[+] SUCCESS: All active Firewall profiles allow Outbound connections (Required for ports 8001 and 4444)." -ForegroundColor Green
+    Write-Host "[+] SUCCES: Traficul Outbound este permis (Windows va putea contacta Ubuntu:8001)." -ForegroundColor Green
 } else {
-    Write-Host "[-] ERROR: You must modify the Firewall to allow Outbound traffic, otherwise the reverse shell will fail." -ForegroundColor Red
+    Write-Host "[-] EROARE: Firewall-ul blochează ieșirea. Studenții nu vor putea descărca payload-ul." -ForegroundColor Red
 }
 
-Write-Host "`nWindows setup and validation completed!" -ForegroundColor White
+Write-Host "`n[***] Validarea mașinii Windows a luat sfârșit!" -ForegroundColor White
