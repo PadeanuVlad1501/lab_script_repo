@@ -1,166 +1,71 @@
 #!/bin/bash
 # =============================================================================
-#  ubuntu_setup.sh  —  SdbExplorer Lab  |  One-time setup
-# =============================================================================
-#  Run this ONCE before handing the lab to users.
-#  It creates the lab directory, downloads/copies patch.sdb, and places
-#  sdb-explorer.exe so the Python web server (Phase 2) can serve all three
-#  files to the Windows VM.
-#
-#  What this script does NOT do:
-#    - Generate evil.dll (IP-dependent; handled by lab_start.sh each session)
-#    - Configure the Windows VM (handled separately by the Windows setup script)
-#
-#  After this script succeeds, ~/BnB/SdbExplorerLab will contain:
-#    patch.sdb          Windows Shim Database — created via Windows ADK
-#    sdb-explorer.exe   Forensic SDB parser (Windows executable)
-#    [evil.dll]         Generated at lab start, not here
+#  ubuntu_setup.sh  —  SdbExplorer Lab  |  One-time setup (v2.0 Benign DLL)
 # =============================================================================
 
 set -euo pipefail
 
-# ─── Colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
 info()    { echo -e "${CYAN}[*]${NC} $*"; }
 success() { echo -e "${GREEN}[+]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[!]${NC} $*"; }
-error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
-die()     { error "$*"; exit 1; }
+die()     { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
-# ─── Configuration ────────────────────────────────────────────────────────────
 LAB_DIR="$HOME/BnB/SdbExplorer"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# ─── patch.sdb ────────────────────────────────────────────────────────────────
-# Option A: Seteaza URL-ul direct catre fisierul patch.sdb pre-compilat din ADK
-PATCH_SDB_URL=""
-
-# Option B: Daca URL-ul de mai sus e gol, pune fisierul patch.sdb in acelasi 
-#           director cu acest script si va fi copiat automat.
-
-# ─── sdb-explorer.exe ─────────────────────────────────────────────────────────
-# Option A: Seteaza URL-ul direct catre sdb-explorer.exe
-SDB_EXPLORER_URL=""
-
-# Option B: Pune fisierul sdb-explorer.exe in acelasi director cu acest script.
-
-# =============================================================================
-#  STEP 0 — Preflight checks
-# =============================================================================
 echo ""
-echo -e "${BOLD}════════════════════════════════════════════${NC}"
-echo -e "${BOLD}   SdbExplorer Lab — Ubuntu Setup Script    ${NC}"
-echo -e "${BOLD}════════════════════════════════════════════${NC}"
+echo -e "${BOLD}══════════════════════════════════════════════════════════${NC}"
+echo -e "${BOLD}   SdbExplorer Lab — Ubuntu One-Time Setup (v2.0 Benign)  ${NC}"
+echo -e "${BOLD}══════════════════════════════════════════════════════════${NC}"
 echo ""
 
-info "Checking prerequisites..."
-
+# 1. Verificare Python (pentru web server)
 if ! command -v python3 &>/dev/null; then
-    die "python3 is not installed. Run: sudo apt-get install -y python3"
+    die "python3 nu este instalat. Rulează: sudo apt-get install -y python3"
 fi
-success "python3 found: $(python3 --version)"
+success "python3 găsit"
 
-if command -v msfvenom &>/dev/null; then
-    success "msfvenom found (needed by lab_start.sh)"
-else
-    warn "msfvenom not found. Install Metasploit Framework before running lab_start.sh."
-    warn "  sudo apt-get install -y metasploit-framework"
+# 2. Verificare compilator MinGW 32-bit (pentru SysWOW64)
+if ! command -v i686-w64-mingw32-gcc &>/dev/null; then
+    warn "Compilatorul cross-platform 32-bit nu a fost găsit. Se instalează mingw-w64..."
+    sudo apt-get update && sudo apt-get install -y mingw-w64
 fi
+success "Compilator i686-w64-mingw32-gcc disponibil"
 
-if ! command -v wget &>/dev/null; then
-    warn "wget not found; installing..."
-    sudo apt-get install -y wget
-fi
-
-# =============================================================================
-#  STEP 1 — Create lab directory
-# =============================================================================
-echo ""
-info "Creating lab directory: $LAB_DIR"
+# 3. Creare director laborator
+info "Se pregătește directorul: $LAB_DIR"
 mkdir -p "$LAB_DIR"
-success "Directory ready"
 
-# =============================================================================
-#  STEP 2 — Setup patch.sdb
-# =============================================================================
-echo ""
-info "Setting up patch.sdb..."
-
-PATCH_SDB_DEST="$LAB_DIR/patch.sdb"
-
-if [[ -n "$PATCH_SDB_URL" ]]; then
-    info "Downloading from $PATCH_SDB_URL ..."
-    wget -q --show-progress -O "$PATCH_SDB_DEST" "$PATCH_SDB_URL"
-    success "patch.sdb downloaded"
-elif [[ -f "$(dirname "$0")/patch.sdb" ]]; then
-    cp "$(dirname "$0")/patch.sdb" "$PATCH_SDB_DEST"
-    success "patch.sdb copied from script directory"
-elif [[ -f "$PATCH_SDB_DEST" ]]; then
-    success "patch.sdb already present — skipping"
+# 4. Generare / Copiere demo.dll
+if [[ -f "$SCRIPT_DIR/demo_payload.c" ]]; then
+    info "Se compilează demo.dll din demo_payload.c ..."
+    i686-w64-mingw32-gcc -shared -o "$LAB_DIR/demo.dll" "$SCRIPT_DIR/demo_payload.c" -luser32 -lkernel32
+    success "demo.dll compilat cu succes (Arhitectură: 32-bit)"
+elif [[ -f "$SCRIPT_DIR/demo.dll" ]]; then
+    cp "$SCRIPT_DIR/demo.dll" "$LAB_DIR/demo.dll"
+    success "demo.dll copiat în directorul de laborator"
 else
-    warn "patch.sdb not found. Do one of the following:"
-    warn "  A) Set PATCH_SDB_URL at the top of this script, OR"
-    warn "  B) Place patch.sdb in the same folder as ubuntu_setup.sh"
-    warn ""
-    warn "  (Remember: generate this file using Windows ADK Compatibility Administrator)"
-    warn "Continuing without patch.sdb — lab WILL NOT work until added."
+    die "Lipsă fișier sursă! Pune 'demo_payload.c' lângă acest script și re-rulează."
 fi
 
-# =============================================================================
-#  STEP 3 — Place sdb-explorer.exe
-# =============================================================================
-echo ""
-info "Setting up sdb-explorer.exe..."
-
-SDB_EXPLORER_DEST="$LAB_DIR/sdb-explorer.exe"
-
-if [[ -n "$SDB_EXPLORER_URL" ]]; then
-    info "Downloading from $SDB_EXPLORER_URL ..."
-    wget -q --show-progress -O "$SDB_EXPLORER_DEST" "$SDB_EXPLORER_URL"
-    success "sdb-explorer.exe downloaded"
-elif [[ -f "$(dirname "$0")/sdb-explorer.exe" ]]; then
-    cp "$(dirname "$0")/sdb-explorer.exe" "$SDB_EXPLORER_DEST"
-    success "sdb-explorer.exe copied from script directory"
-elif [[ -f "$SDB_EXPLORER_DEST" ]]; then
-    success "sdb-explorer.exe already present — skipping"
+# 5. Copiere patch.sdb
+if [[ -f "$SCRIPT_DIR/patch.sdb" ]]; then
+    cp "$SCRIPT_DIR/patch.sdb" "$LAB_DIR/patch.sdb"
+    success "patch.sdb copiat"
 else
-    warn "sdb-explorer.exe not found. Do one of the following:"
-    warn "  A) Set SDB_EXPLORER_URL at the top of this script, OR"
-    warn "  B) Place sdb-explorer.exe in the same folder as ubuntu_setup.sh"
-    warn ""
-    warn "  Suggested source: https://github.com/evil-e/sdb-explorer/releases"
-    warn "Continuing without sdb-explorer.exe — lab WILL NOT work until added."
+    warn "patch.sdb lipsește din folderul scriptului! Laboratorul nu va funcționa fără el."
 fi
 
-# =============================================================================
-#  STEP 4 — Verify lab directory
-# =============================================================================
-echo ""
-info "Lab directory contents:"
-echo ""
-ls -lh "$LAB_DIR" 2>/dev/null || true
-echo ""
-
-ALL_OK=true
-for f in patch.sdb sdb-explorer.exe; do
-    if [[ -f "$LAB_DIR/$f" ]]; then
-        success "$f  ✓"
-    else
-        warn    "$f  ✗  MISSING"
-        ALL_OK=false
-    fi
-done
-
-info "evil.dll  —  (generated per-session by lab_start.sh)"
-
-echo ""
-if [[ "$ALL_OK" == true ]]; then
-    echo -e "${GREEN}${BOLD}Setup complete.${NC}"
-    echo ""
-    echo -e "Next steps:"
-    echo -e "  1. At the start of each lab session, run:  ${BOLD}./lab_start.sh${NC}"
+# 6. Copiere sdb-explorer.exe
+if [[ -f "$SCRIPT_DIR/sdb-explorer.exe" ]]; then
+    cp "$SCRIPT_DIR/sdb-explorer.exe" "$LAB_DIR/sdb-explorer.exe"
+    success "sdb-explorer.exe copiat"
 else
-    echo -e "${YELLOW}${BOLD}Setup finished with warnings — resolve missing files before using this lab.${NC}"
+    warn "sdb-explorer.exe lipsește din folderul scriptului!"
 fi
+
 echo ""
+success "Setup finalizat. Studenții pot folosi 'lab_start.sh'."
