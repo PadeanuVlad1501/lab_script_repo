@@ -1,47 +1,47 @@
 # =============================================================================
-#  windows_setup.ps1 — SdbExplorer Lab | Endpoint Validation v2.0 (Benign)
+#  windows_setup.ps1 — SdbExplorer Lab | Endpoint Validation & Setup (v2.0)
 # =============================================================================
 
 $LabDir = "$env:USERPROFILE\Desktop\Labs\SdbExplorerLab"
 New-Item -ItemType Directory -Force -Path $LabDir | Out-Null
-Write-Host "[+] Directorul de lab creat la: $LabDir" -ForegroundColor Green
+Write-Host "[+] Lab directory ready at: $LabDir" -ForegroundColor Green
 
-# 1. Verificare existență SysWOW64 (Vital pentru noul vector de atac)
-Write-Host "`n[*] Se verifică suportul WoW64..." -ForegroundColor Cyan
+# 1. Verify WoW64 Subsystem (Crucial for the 32-bit notepad.exe attack vector)
+Write-Host "`n[*] Checking WoW64 subsystem support..." -ForegroundColor Cyan
 $targetApp = "C:\Windows\SysWOW64\notepad.exe"
 if (Test-Path $targetApp) {
-    Write-Host "[+] SUCCES: 32-bit notepad.exe este prezent." -ForegroundColor Green
+    Write-Host "[+] SUCCESS: 32-bit SysWOW64\notepad.exe is present." -ForegroundColor Green
 } else {
-    Write-Host "[-] EROARE CRITICĂ: SysWOW64\notepad.exe lipsește! Lab-ul cere un Windows pe 64-bit." -ForegroundColor Red
+    Write-Host "[-] CRITICAL ERROR: SysWOW64\notepad.exe not found! This lab requires a 64-bit Windows OS." -ForegroundColor Red
 }
 
-# 2. Verificare Windows Defender 
-# (Chiar și un DLL benign injectat prin sdbinst poate declanșa euristica LotL)
-Write-Host "`n[*] Verificare status Windows Defender..." -ForegroundColor Cyan
+# 2. Check Windows Defender Status
+Write-Host "`n[*] Checking Windows Defender status..." -ForegroundColor Cyan
 $defenderStatus = Get-MpPreference
 if ($defenderStatus.DisableRealtimeMonitoring -eq $true) {
-    Write-Host "[+] SUCCES: Windows Defender Real-Time Protection este DEZACTIVAT." -ForegroundColor Green
+    Write-Host "[+] SUCCESS: Windows Defender Real-Time Protection is DISABLED." -ForegroundColor Green
 } else {
-    Write-Host "[-] AVERTISMENT: Windows Defender este activ. Ar putea bloca sdbinst.exe." -ForegroundColor Yellow
-    Write-Host "    Recomandare: Dezactivați Real-Time protection din VM înainte de distribuire." -ForegroundColor DarkYellow
+    Write-Host "[-] WARNING: Windows Defender Real-Time Protection is ACTIVE." -ForegroundColor Yellow
+    Write-Host "    Even a benign DLL injected via sdbinst.exe can trigger LotL heuristics." -ForegroundColor DarkYellow
+    Write-Host "    Recommendation: Disable Real-Time Protection before distributing the VM." -ForegroundColor DarkYellow
 }
 
-# 3. Verificare reguli Firewall Outbound (Doar port 8001/HTTP necesar acum)
-Write-Host "`n[*] Verificare Firewall Outbound (pentru download-ul de pe Ubuntu)..." -ForegroundColor Cyan
+# 3. Check Outbound Firewall Rules (HTTP Port 8001)
+Write-Host "`n[*] Checking Outbound Firewall profiles..." -ForegroundColor Cyan
 $firewallProfiles = Get-NetFirewallProfile
 $allOutboundAllowed = $true
 
 foreach ($profile in $firewallProfiles) {
     if ($profile.Enabled -eq $true -and $profile.DefaultOutboundAction -ne "Allow") {
-        Write-Host "[-] AVERTISMENT: Profilul '$($profile.Name)' blochează conexiunile outbound." -ForegroundColor Yellow
+        Write-Host "[-] WARNING: Firewall profile '$($profile.Name)' restricts outbound connections." -ForegroundColor Yellow
         $allOutboundAllowed = $false
     }
 }
 
 if ($allOutboundAllowed) {
-    Write-Host "[+] SUCCES: Traficul Outbound este permis (Windows va putea contacta Ubuntu:8001)." -ForegroundColor Green
+    Write-Host "[+] SUCCESS: Outbound traffic allowed (VM can reach Ubuntu staging server on port 8001)." -ForegroundColor Green
 } else {
-    Write-Host "[-] EROARE: Firewall-ul blochează ieșirea. Studenții nu vor putea descărca payload-ul." -ForegroundColor Red
+    Write-Host "[-] ERROR: Outbound traffic is blocked. Students will fail to download the payload." -ForegroundColor Red
 }
 
-Write-Host "`n[***] Validarea mașinii Windows a luat sfârșit!" -ForegroundColor White
+Write-Host "`n[***] Windows VM validation finished!" -ForegroundColor White 
