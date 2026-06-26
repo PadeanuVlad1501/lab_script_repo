@@ -1,9 +1,9 @@
 # =============================================================================
-#  lab_start.ps1 — SdbExplorer Lab | Surgical Session Starter (Least Privilege)
+#  lab_start.ps1 — SdbExplorer Lab 
 # =============================================================================
 
 Write-Host "════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-Write-Host "    SdbExplorer Lab — Windows Surgical Starter (Hardened)       " -ForegroundColor Cyan
+Write-Host "    SdbExplorer Lab                                             " -ForegroundColor Cyan
 Write-Host "════════════════════════════════════════════════════════════════`n" -ForegroundColor Cyan
 
 # 1. Verificare sistem 64-bit (Vital pentru SysWOW64 bypass)
