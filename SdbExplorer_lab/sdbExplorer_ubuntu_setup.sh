@@ -43,7 +43,7 @@ WIN_DLL_PATH='C:\Users\Public\demo.dll'
 TARGET_EXE='target.exe'
 
 # Where sdb-explorer.exe comes from (set URL or place the file next to this script).
-SDB_EXPLORER_URL=""
+SDB_EXPLORER_URL="https://raw.githubusercontent.com/PadeanuVlad1501/lab_script_repo/refs/heads/main/SdbExplorer_lab/sdb-explorer.exe"
 
 # =============================================================================
 echo ""
