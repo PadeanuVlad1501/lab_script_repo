@@ -31,7 +31,8 @@ echo "[+] Downloading lab files..."
 
 wget -q ${REPO}/shimgen.exe
 wget -q ${REPO}/rcedit.exe
-wget -q ${REPO}/strings.exe
+# Download strings.exe directly from Sysinternals (Licensing compliance)
+wget -q https://live.sysinternals.com/strings.exe -O strings.exe
 wget -q ${REPO}/payload.ps1
 wget -q ${REPO}/putty.ico
 
