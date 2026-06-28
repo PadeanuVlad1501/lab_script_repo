@@ -1,44 +1,91 @@
-Write-Host "[*] Starting Windows setup for ShimGen Lab..." -ForegroundColor Cyan
+# ==========================================
+# ShimGen Lab - Windows Setup
+# ==========================================
 
-# 1. Create the lab environment directories
-$LabDir = "$env:USERPROFILE\Desktop\Labs\ShimGenLab"
-New-Item -ItemType Directory -Force -Path $LabDir | Out-Null
+$ErrorActionPreference = "Stop"
 
-# 2. Install PuTTY silently (Required for the masquerading simulation)
-Write-Host "[*] Installing PuTTY in the background..." -ForegroundColor Cyan
-$PuttyMsi = "$env:TEMP\putty.msi"
-$PuttyUrl = "https://the.earth.li/~sgtatham/putty/latest/w64/putty-64bit-0.81-installer.msi"
-Invoke-WebRequest -Uri $PuttyUrl -OutFile $PuttyMsi
+# -------------------------------
+# Verify Administrator
+# -------------------------------
 
-# Run the MSI installer without UI and without rebooting
-$process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i $PuttyMsi /qn /norestart" -Wait -PassThru
-Remove-Item $PuttyMsi -Force
-
-if (Test-Path "C:\Program Files\PuTTY\putty.exe") {
-    Write-Host "[+] PuTTY installed successfully!" -ForegroundColor Green
-} else {
-    Write-Host "[-] Error installing PuTTY. Please check your permissions." -ForegroundColor Red
+if (-not ([Security.Principal.WindowsPrincipal] `
+    [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator))
+{
+    Write-Host ""
+    Write-Host "[-] Please run this script as Administrator." -ForegroundColor Red
+    exit
 }
 
-# 3. Generate the Lab Start script
-Write-Host "[*] Generating lab_start.ps1..." -ForegroundColor Cyan
+Write-Host ""
+Write-Host "[+] Starting ShimGen Lab setup..." -ForegroundColor Cyan
 
-$LabStartContent = @'
-Write-Host "[*] Initializing ShimGen Lab..." -ForegroundColor Yellow
+# -------------------------------
+# Create directories
+# -------------------------------
 
-# A. Enable Process Creation auditing (Event ID 4688)
-# This step is crucial for the Blue Team phase (Process Lineage Analysis)[cite: 2]
-Write-Host "[*] Enabling Process Creation auditing (Event ID 4688)..." -ForegroundColor Yellow
+$LabDir = "$env:USERPROFILE\Desktop\Labs\ShimGenLab"
+
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\Desktop\Labs" | Out-Null
+New-Item -ItemType Directory -Force -Path $LabDir | Out-Null
+
+# -------------------------------
+# Download lab_start.ps1
+# -------------------------------
+
+Write-Host "[+] Downloading lab_start.ps1..."
+
+Invoke-WebRequest `
+"https://raw.githubusercontent.com/PadeanuVlad1501/lab_script_repo/main/ShimGen_lab/lab_start.ps1" `
+-OutFile "$LabDir\lab_start.ps1"
+
+# -------------------------------
+# Configure PowerShell
+# -------------------------------
+
+Write-Host "[+] Configuring Execution Policy..."
+
+Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
+
+# -------------------------------
+# Enable Process Creation Auditing
+# -------------------------------
+
+Write-Host "[+] Enabling Process Creation auditing..."
+
 auditpol /set /subcategory:"Process Creation" /success:enable | Out-Null
 
-# B. Configure Firewall rules
-# Allow outbound traffic to the Ubuntu C2 server on port 8001
-Write-Host "[*] Applying Firewall rules for Ubuntu C2 communication..." -ForegroundColor Yellow
-New-NetFirewallRule -DisplayName "ShimGen Lab - Allow Outbound 8001" -Direction Outbound -LocalPort Any -RemotePort 8001 -Protocol TCP -Action Allow -ErrorAction SilentlyContinue | Out-Null
+# -------------------------------
+# Install PuTTY
+# -------------------------------
 
-Write-Host "`n[✓] Lab is ready! Leave this terminal open and proceed with the guide." -ForegroundColor Green
-'@
+if (!(Test-Path "C:\Program Files\PuTTY\putty.exe"))
+{
+    Write-Host "[+] Installing PuTTY..."
 
-Set-Content -Path "$LabDir\lab_start.ps1" -Value $LabStartContent
+    winget install `
+        --id PuTTY.PuTTY `
+        --silent `
+        --accept-package-agreements `
+        --accept-source-agreements
+}
+else
+{
+    Write-Host "[+] PuTTY already installed."
+}
 
-Write-Host "[✓] Windows setup complete! The machine is now ready for a Snapshot." -ForegroundColor Green
+# -------------------------------
+# Verify
+# -------------------------------
+
+if (Test-Path "C:\Program Files\PuTTY\putty.exe")
+{
+    Write-Host "[+] PuTTY OK"
+}
+else
+{
+    Write-Host "[-] PuTTY installation failed." -ForegroundColor Red
+}
+
+Write-Host ""
+Write-Host "[✓] Windows setup complete." -ForegroundColor Green
