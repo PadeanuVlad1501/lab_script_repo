@@ -3,7 +3,7 @@
 # =============================================================================
 
 Write-Host "================================================================" -ForegroundColor Cyan
-Write-Host "                       Shimgen Lab Setup                        " -ForegroundColor Cyan
+Write-Host "                       Shimgen Lab Start                        " -ForegroundColor Cyan
 Write-Host "================================================================`n" -ForegroundColor Cyan
 
 # 1. Verify 64-bit OS (Crucial for SysWOW64 bypass vector)
