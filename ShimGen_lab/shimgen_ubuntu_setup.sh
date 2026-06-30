@@ -29,9 +29,10 @@ REPO="https://raw.githubusercontent.com/PadeanuVlad1501/lab_script_repo/main/Shi
 echo ""
 echo "[+] Downloading lab files..."
 
-wget -q ${REPO}/shimgen.exe
+# Downloads pre-compiled official executable (v2.3) and renames it to shimgen.exe
+wget -q https://github.com/jphilbert/shim_executable/releases/download/v2.3/shim_exec.exe -O shimgen.exe
 wget -q ${REPO}/rcedit.exe
-# Download strings.exe directly from Sysinternals (Licensing compliance)
+# Downloads strings.exe directly from Sysinternals (Licensing compliance)
 wget -q https://live.sysinternals.com/strings.exe -O strings.exe
 wget -q ${REPO}/payload.ps1
 wget -q ${REPO}/putty.ico
