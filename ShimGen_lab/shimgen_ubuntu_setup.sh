@@ -31,14 +31,14 @@ echo "[+] Downloading lab files..."
 
 # Downloads pre-compiled official executable (v2.3) and renames it to shimgen.exe
 wget -q https://github.com/jphilbert/shim_executable/releases/download/v2.3/shim_exec.exe -O shimgen.exe
-wget -q ${REPO}/rcedit.exe
+wget -q ${REPO}/ResHacker.exe
 # Downloads strings.exe directly from Sysinternals (Licensing compliance)
 wget -q https://live.sysinternals.com/strings.exe -O strings.exe
 wget -q ${REPO}/payload.ps1
 wget -q ${REPO}/putty.ico
 
 chmod +x shimgen.exe || true
-chmod +x rcedit.exe || true
+chmod +x ResHacker.exe || true
 
 echo ""
 echo "[+] Current IP address:"
