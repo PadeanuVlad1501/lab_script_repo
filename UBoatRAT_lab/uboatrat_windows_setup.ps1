@@ -1,6 +1,5 @@
 # ============================================================================
 # Script: uboatrat_windows_setup.ps1
-# Role: Cold provisioning of the Windows VM for the UBoatRAT Lab
 # ============================================================================
 
 $LabDir = "C:\Users\Administrator\Desktop\Labs\UBoatRAT"
