@@ -40,4 +40,5 @@ auditpol /set /subcategory:"Process Creation" /success:enable | Out-Null
 
 Write-Host "[+] Auditing enabled (BITS Operational & Process Creation)." -ForegroundColor Green
 
-Write-Host "`n[✓] The environment is ready! You can begin the investigation of WinSvcHelper.exe." -ForegroundColor Green
+# ASCII safe string for successful initialization
+Write-Host "`n[+] The environment is ready! You can begin the investigation of WinSvcHelper.exe." -ForegroundColor Green
