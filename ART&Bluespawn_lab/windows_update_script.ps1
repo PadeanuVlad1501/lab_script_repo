@@ -12,8 +12,8 @@ $TemporaryPath = Join-Path $env:TEMP $FileName
 
 $DownloadUrl = "https://github.com/ION28/BLUESPAWN/releases/download/$ReleaseVersion/$FileName"
 
-# Copy the complete SHA-256 value shown on the official GitHub release page.
-$ExpectedSha256 = "PASTE_FULL_SHA256_HERE"
+
+$ExpectedSha256 = "ccabc1a0eb48577cb23f0c4b8ae73dd36b6d65318315f047d3171a2cdeb245aa"
 
 function Write-Step {
     param(
