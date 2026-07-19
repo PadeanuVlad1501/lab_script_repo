@@ -1,228 +1,946 @@
-#!/usr/bin/env bash
+#requires -Version 5.1
+
+<#
+.SYNOPSIS
+    Initializes the Windows VM for the benign UBoatRAT behavior lab.
+
+.DESCRIPTION
+    This script prepares networking, removes previous lab-specific artefacts,
+    enables required telemetry, and verifies that the Ubuntu lab server is
+    reachable.
+
+    It does not:
+      - execute WinSvcHelper.exe;
+      - disable Microsoft Defender;
+      - add Defender exclusions;
+      - reset unrelated BITS jobs;
+      - expose any network service;
+      - create a command-and-control channel.
+#>
+
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $false, Position = 0)]
+    [string]$UbuntuIP
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
 # ============================================================================
-# Script: uboatrat_ubuntu_setup.sh
-# Purpose: Prepare the Ubuntu VM for the benign UBoatRAT laboratory
+# Configuration
 # ============================================================================
 
-set -Eeuo pipefail
+$LabHostname       = "uboat-c2.test"
+$HttpPort          = 8080
+$BeaconPort        = 9001
+$LabBitsJobName    = "UBoatLab_Persistence"
 
-LAB_DIR="$HOME/BnB/UBoatRAT"
-SERVER_PATH="$LAB_DIR/ubuntu_c2_server.py"
+$ScriptPath = $MyInvocation.MyCommand.Path
+$LabDir     = Split-Path -Parent $ScriptPath
 
-REPO_BASE="https://raw.githubusercontent.com/PadeanuVlad1501/lab_script_repo/refs/heads/main/UBoatRAT_lab"
-SERVER_URL="$REPO_BASE/ubuntu_c2_server.py"
+$SimulatorPath = Join-Path $LabDir "WinSvcHelper.exe"
+$MarkerPath    = Join-Path $LabDir "UBoatRAT_LAB.marker"
+$SessionPath   = Join-Path $LabDir "lab_session.json"
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-CYAN='\033[0;36m'
-RESET='\033[0m'
+$InstalledLabRoot = "C:\ProgramData\UBoatRAT_Lab"
+$InstalledCopy    = Join-Path $InstalledLabRoot "svchost.exe"
 
-log_info() {
-    echo -e "${CYAN}[*] $1${RESET}"
+$TempTriggerPath = Join-Path $env:TEMP "uboat_lab_trigger.dat"
+$BlockedLogPath  = Join-Path $env:TEMP "UBoatRAT_Lab_Blocked.log"
+
+$HostsFile       = Join-Path $env:SystemRoot "System32\drivers\etc\hosts"
+$HostsBackupPath = Join-Path $LabDir "hosts.pre-uboatrat.bak"
+
+# ============================================================================
+# Output helpers
+# ============================================================================
+
+function Write-Info {
+    param([string]$Message)
+
+    Write-Host "[*] $Message" -ForegroundColor Cyan
 }
 
-log_success() {
-    echo -e "${GREEN}[+] $1${RESET}"
+function Write-Success {
+    param([string]$Message)
+
+    Write-Host "[+] $Message" -ForegroundColor Green
 }
 
-log_warning() {
-    echo -e "${YELLOW}[!] $1${RESET}"
+function Write-WarningMessage {
+    param([string]$Message)
+
+    Write-Host "[!] $Message" -ForegroundColor Yellow
 }
 
-log_error() {
-    echo -e "${RED}[-] $1${RESET}" >&2
+function Write-Failure {
+    param([string]$Message)
+
+    Write-Host "[-] $Message" -ForegroundColor Red
 }
 
-cleanup_on_error() {
-    local exit_code=$?
+# ============================================================================
+# Validation helpers
+# ============================================================================
 
-    log_error "Ubuntu setup failed with exit code $exit_code."
-    log_error "The VM has not been prepared successfully."
+function Test-IsAdministrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 
-    exit "$exit_code"
+    $principal = New-Object Security.Principal.WindowsPrincipal(
+        $identity
+    )
+
+    return $principal.IsInRole(
+        [Security.Principal.WindowsBuiltinRole]::Administrator
+    )
 }
 
-trap cleanup_on_error ERR
+function Test-IsPrivateIPv4 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Address
+    )
 
-echo
-echo "============================================================"
-echo "       Benign UBoatRAT Laboratory — Ubuntu Setup"
-echo "============================================================"
-echo
+    $parsedAddress = [System.Net.IPAddress]::None
 
-# ---------------------------------------------------------------------------
-# 1. Install required packages
-# ---------------------------------------------------------------------------
+    if (-not [System.Net.IPAddress]::TryParse(
+            $Address,
+            [ref]$parsedAddress
+        )) {
+        return $false
+    }
 
-log_info "Updating the APT package index..."
+    if (
+        $parsedAddress.AddressFamily -ne
+        [System.Net.Sockets.AddressFamily]::InterNetwork
+    ) {
+        return $false
+    }
 
-sudo apt-get update -y
+    $bytes = $parsedAddress.GetAddressBytes()
 
-log_info "Installing required packages..."
+    # 10.0.0.0/8
+    if ($bytes[0] -eq 10) {
+        return $true
+    }
 
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    python3 \
-    curl \
-    tcpdump \
-    tree \
-    iproute2 \
-    ca-certificates
+    # 172.16.0.0/12
+    if (
+        $bytes[0] -eq 172 -and
+        $bytes[1] -ge 16 -and
+        $bytes[1] -le 31
+    ) {
+        return $true
+    }
 
-log_success "Required packages are installed."
+    # 192.168.0.0/16
+    if (
+        $bytes[0] -eq 192 -and
+        $bytes[1] -eq 168
+    ) {
+        return $true
+    }
 
-# ---------------------------------------------------------------------------
-# 2. Create the laboratory directory structure
-# ---------------------------------------------------------------------------
+    return $false
+}
 
-log_info "Creating the laboratory directory structure..."
+function Test-TcpPort {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ComputerName,
 
-mkdir -p \
-    "$LAB_DIR/c2" \
-    "$LAB_DIR/resolver" \
-    "$LAB_DIR/logs" \
-    "$LAB_DIR/captures"
+        [Parameter(Mandatory = $true)]
+        [int]$Port,
 
-log_success "Laboratory directory created at: $LAB_DIR"
+        [int]$TimeoutMilliseconds = 4000
+    )
 
-# ---------------------------------------------------------------------------
-# 3. Remove obsolete artefacts from the previous implementation
-# ---------------------------------------------------------------------------
+    $client = New-Object System.Net.Sockets.TcpClient
 
-log_info "Removing obsolete files from the previous implementation..."
+    try {
+        $asyncResult = $client.BeginConnect(
+            $ComputerName,
+            $Port,
+            $null,
+            $null
+        )
 
-rm -rf "$LAB_DIR/uploads"
+        $connected = $asyncResult.AsyncWaitHandle.WaitOne(
+            $TimeoutMilliseconds,
+            $false
+        )
 
-rm -f \
-    "$LAB_DIR/c2/implant.dat" \
-    "$LAB_DIR/c2/config.dat" \
-    "$LAB_DIR/c2/beacon.dat" \
-    "$LAB_DIR/c2/next_stage.dat"
+        if (-not $connected) {
+            return $false
+        }
 
-log_success "Obsolete laboratory artefacts removed."
+        $client.EndConnect($asyncResult)
 
-# ---------------------------------------------------------------------------
-# 4. Download the benign Ubuntu server
-# ---------------------------------------------------------------------------
+        return $client.Connected
+    }
+    catch {
+        return $false
+    }
+    finally {
+        $client.Dispose()
+    }
+}
 
-log_info "Downloading ubuntu_c2_server.py from GitHub..."
+function Get-LocalRouteAddress {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RemoteAddress
+    )
 
-TEMP_SERVER="$(mktemp)"
+    $udpClient = New-Object System.Net.Sockets.UdpClient
 
-curl \
-    --fail \
-    --silent \
-    --show-error \
-    --location \
-    "$SERVER_URL" \
-    --output "$TEMP_SERVER"
+    try {
+        # This selects the route without transmitting application data.
+        $udpClient.Connect($RemoteAddress, 9)
 
-if [[ ! -s "$TEMP_SERVER" ]]; then
-    log_error "The downloaded server file is empty."
-    rm -f "$TEMP_SERVER"
+        $localEndpoint =
+            [System.Net.IPEndPoint]$udpClient.Client.LocalEndPoint
+
+        return $localEndpoint.Address.ToString()
+    }
+    catch {
+        return "Unknown"
+    }
+    finally {
+        $udpClient.Dispose()
+    }
+}
+
+# ============================================================================
+# Start
+# ============================================================================
+
+Clear-Host
+
+Write-Host ""
+Write-Host "============================================================" `
+    -ForegroundColor DarkCyan
+Write-Host "       Benign UBoatRAT Laboratory — Windows Start" `
+    -ForegroundColor Cyan
+Write-Host "============================================================" `
+    -ForegroundColor DarkCyan
+Write-Host ""
+
+if (-not (Test-IsAdministrator)) {
+    Write-Failure "This script must be run from an Administrator PowerShell."
+    Write-Failure "Right-click PowerShell and select 'Run as administrator'."
     exit 1
-fi
+}
 
-install \
-    -m 0755 \
-    "$TEMP_SERVER" \
-    "$SERVER_PATH"
+Write-Success "Administrator privileges confirmed."
 
-rm -f "$TEMP_SERVER"
+Set-Location -LiteralPath $LabDir
 
-log_success "Server downloaded to: $SERVER_PATH"
+Write-Info "Laboratory directory: $LabDir"
 
-# ---------------------------------------------------------------------------
-# 5. Validate the Python source before taking the snapshot
-# ---------------------------------------------------------------------------
+# ============================================================================
+# 1. Verify required laboratory files
+# ============================================================================
 
-log_info "Validating the Python server syntax..."
+Write-Info "Checking required laboratory artefacts..."
 
-python3 -m py_compile "$SERVER_PATH"
+$missingFiles = @()
 
-# py_compile creates this directory; it is not needed in the snapshot.
-rm -rf "$LAB_DIR/__pycache__"
+foreach ($requiredFile in @(
+    $SimulatorPath,
+    $MarkerPath
+)) {
+    if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+        $missingFiles += $requiredFile
+    }
+}
 
-log_success "Python syntax validation passed."
+if ($missingFiles.Count -gt 0) {
+    foreach ($missingFile in $missingFiles) {
+        Write-Failure "Missing required file: $missingFile"
+    }
 
-# ---------------------------------------------------------------------------
-# 6. Verify that the server exposes its command-line interface
-# ---------------------------------------------------------------------------
+    exit 1
+}
 
-log_info "Checking the server command-line interface..."
+if ((Get-Item -LiteralPath $SimulatorPath).Length -eq 0) {
+    Write-Failure "WinSvcHelper.exe is empty."
+    exit 1
+}
 
-python3 "$SERVER_PATH" --help >/dev/null
+if ((Get-Item -LiteralPath $MarkerPath).Length -eq 0) {
+    Write-Failure "UBoatRAT_LAB.marker is empty."
+    exit 1
+}
 
-log_success "Server command-line validation passed."
+Write-Success "WinSvcHelper.exe found."
+Write-Success "UBoatRAT_LAB.marker found."
 
-# ---------------------------------------------------------------------------
-# 7. Check whether the required ports are already occupied
-# ---------------------------------------------------------------------------
+$SimulatorHash = (
+    Get-FileHash `
+        -LiteralPath $SimulatorPath `
+        -Algorithm SHA256
+).Hash.ToLowerInvariant()
 
-log_info "Checking laboratory ports..."
+Write-Host "    WinSvcHelper SHA-256: $SimulatorHash" `
+    -ForegroundColor DarkGray
 
-PORT_CONFLICT=0
+# ============================================================================
+# 2. Request and validate the Ubuntu IP address
+# ============================================================================
 
-if ss -lnt | grep -qE '[:.]8080[[:space:]]'; then
-    log_warning "TCP port 8080 is already in use."
-    PORT_CONFLICT=1
-else
-    log_success "TCP port 8080 is available."
-fi
+if ([string]::IsNullOrWhiteSpace($UbuntuIP)) {
+    $UbuntuIP = Read-Host `
+        "Enter the private IPv4 address of the Ubuntu VM"
+}
 
-if ss -lnt | grep -qE '[:.]9001[[:space:]]'; then
-    log_warning "TCP port 9001 is already in use."
-    PORT_CONFLICT=1
-else
-    log_success "TCP port 9001 is available."
-fi
+$UbuntuIP = $UbuntuIP.Trim()
 
-if [[ "$PORT_CONFLICT" -eq 1 ]]; then
-    log_warning "Stop the conflicting service before starting the lab server."
-fi
+if (-not (Test-IsPrivateIPv4 -Address $UbuntuIP)) {
+    Write-Failure (
+        "'$UbuntuIP' is not a valid RFC1918 private IPv4 address."
+    )
 
-# ---------------------------------------------------------------------------
-# 8. Display the available private IPv4 addresses
-# ---------------------------------------------------------------------------
+    Write-Failure (
+        "Expected a 10.x.x.x, 172.16-31.x.x, or 192.168.x.x address."
+    )
 
-echo
-log_info "Available non-loopback IPv4 addresses:"
+    exit 1
+}
 
-ip -brief -4 address show scope global || true
+Write-Success "Ubuntu private IPv4 validated: $UbuntuIP"
 
-echo
-log_info "Current laboratory directory:"
+$WindowsIP = Get-LocalRouteAddress -RemoteAddress $UbuntuIP
 
-tree -a "$LAB_DIR"
+Write-Host "    Windows source IPv4: $WindowsIP" `
+    -ForegroundColor DarkGray
 
-# ---------------------------------------------------------------------------
-# 9. Final instructions
-# ---------------------------------------------------------------------------
+# ============================================================================
+# 3. Configure the controlled laboratory hostname
+# ============================================================================
 
-echo
-echo "============================================================"
-log_success "Ubuntu infrastructure setup completed successfully."
-echo "============================================================"
-echo
-echo "The setup script did NOT:"
-echo "  - start the laboratory server;"
-echo "  - open firewall ports;"
-echo "  - expose services to the Internet;"
-echo "  - create a command-and-control channel."
-echo
-echo "Start the server during the laboratory with:"
-echo
-echo "  cd ~/BnB/UBoatRAT"
-echo "  python3 ubuntu_c2_server.py"
-echo
-echo "If automatic IP detection selects the wrong interface:"
-echo
-echo "  python3 ubuntu_c2_server.py --advertise-ip <UBUNTU_PRIVATE_IP>"
-echo
-echo "Optional packet capture:"
-echo
-echo "  sudo tcpdump -ni any 'tcp port 8080 or tcp port 9001' \\"
-echo "    -w ~/BnB/UBoatRAT/captures/uboatrat_lab.pcap"
-echo
-echo "Take the Ubuntu VM snapshot now."
-echo
+Write-Info "Configuring $LabHostname in the Windows hosts file..."
+
+if (-not (Test-Path -LiteralPath $HostsFile)) {
+    Write-Failure "The Windows hosts file was not found: $HostsFile"
+    exit 1
+}
+
+if (-not (Test-Path -LiteralPath $HostsBackupPath)) {
+    Copy-Item `
+        -LiteralPath $HostsFile `
+        -Destination $HostsBackupPath `
+        -Force
+
+    Write-Success "Original hosts file backed up to:"
+    Write-Host "    $HostsBackupPath" -ForegroundColor DarkGray
+}
+
+$hostnamePattern = (
+    "(?i)(^|\s)" +
+    [regex]::Escape($LabHostname) +
+    "(\s|$)"
+)
+
+$currentHostsContent = Get-Content -LiteralPath $HostsFile
+
+$filteredHostsContent = foreach ($line in $currentHostsContent) {
+    $trimmedLine = $line.TrimStart()
+
+    if ($trimmedLine.StartsWith("#")) {
+        $line
+        continue
+    }
+
+    if ($line -notmatch $hostnamePattern) {
+        $line
+    }
+}
+
+$updatedHostsContent = @($filteredHostsContent)
+
+if (
+    $updatedHostsContent.Count -gt 0 -and
+    $updatedHostsContent[-1] -ne ""
+) {
+    $updatedHostsContent += ""
+}
+
+$updatedHostsContent += (
+    "$UbuntuIP`t$LabHostname`t# Benign UBoatRAT laboratory"
+)
+
+[System.IO.File]::WriteAllLines(
+    $HostsFile,
+    [string[]]$updatedHostsContent,
+    [System.Text.Encoding]::ASCII
+)
+
+& "$env:SystemRoot\System32\ipconfig.exe" /flushdns |
+    Out-Null
+
+Write-Success "$LabHostname mapped to $UbuntuIP."
+
+# Verify that Windows actually resolves the laboratory hostname correctly.
+
+try {
+    $resolvedAddresses = @(
+        [System.Net.Dns]::GetHostAddresses($LabHostname) |
+            Where-Object {
+                $_.AddressFamily -eq
+                [System.Net.Sockets.AddressFamily]::InterNetwork
+            } |
+            ForEach-Object {
+                $_.ToString()
+            }
+    )
+}
+catch {
+    Write-Failure "Windows could not resolve $LabHostname."
+    Write-Failure $_.Exception.Message
+    exit 1
+}
+
+if ($resolvedAddresses -notcontains $UbuntuIP) {
+    Write-Failure (
+        "$LabHostname resolved to '$($resolvedAddresses -join ", ")' " +
+        "instead of '$UbuntuIP'."
+    )
+
+    exit 1
+}
+
+Write-Success "Hostname resolution verified."
+
+# ============================================================================
+# 4. Verify Ubuntu services
+# ============================================================================
+
+Write-Info "Checking Ubuntu HTTP service on TCP/$HttpPort..."
+
+if (-not (
+        Test-TcpPort `
+            -ComputerName $LabHostname `
+            -Port $HttpPort
+    )) {
+    Write-Failure (
+        "The Ubuntu HTTP server is not reachable at " +
+        "$LabHostname`:$HttpPort."
+    )
+
+    Write-Host ""
+    Write-Host "Start it on Ubuntu with:" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  cd ~/BnB/UBoatRAT" -ForegroundColor White
+    Write-Host "  python3 ubuntu_c2_server.py --advertise-ip $UbuntuIP" `
+        -ForegroundColor White
+    Write-Host ""
+
+    exit 1
+}
+
+Write-Success "TCP/$HttpPort is reachable."
+
+Write-Info "Checking benign TCP beacon listener on TCP/$BeaconPort..."
+
+if (-not (
+        Test-TcpPort `
+            -ComputerName $LabHostname `
+            -Port $BeaconPort
+    )) {
+    Write-Failure (
+        "The Ubuntu beacon listener is not reachable at " +
+        "$LabHostname`:$BeaconPort."
+    )
+
+    Write-Failure (
+        "Both the HTTP and TCP components of ubuntu_c2_server.py " +
+        "must be running."
+    )
+
+    exit 1
+}
+
+Write-Success "TCP/$BeaconPort is reachable."
+
+# ============================================================================
+# 5. Verify HTTP resources and resolver contents
+# ============================================================================
+
+Write-Info "Checking the Ubuntu health endpoint..."
+
+try {
+    $healthResponse = Invoke-WebRequest `
+        -Uri "http://$LabHostname`:$HttpPort/health" `
+        -UseBasicParsing `
+        -TimeoutSec 5
+}
+catch {
+    Write-Failure "The Ubuntu health endpoint could not be reached."
+    Write-Failure $_.Exception.Message
+    exit 1
+}
+
+if (
+    $healthResponse.StatusCode -ne 200 -or
+    $healthResponse.Content.Trim() -ne "OK"
+) {
+    Write-Failure "The health endpoint returned an unexpected response."
+    exit 1
+}
+
+Write-Success "Health endpoint returned OK."
+
+Write-Info "Checking the inert BITS trigger file..."
+
+try {
+    $triggerResponse = Invoke-WebRequest `
+        -Uri "http://$LabHostname`:$HttpPort/c2/trigger.dat" `
+        -Method Head `
+        -UseBasicParsing `
+        -TimeoutSec 5
+}
+catch {
+    Write-Failure "The inert BITS trigger file is unavailable."
+    Write-Failure $_.Exception.Message
+    exit 1
+}
+
+if ($triggerResponse.StatusCode -ne 200) {
+    Write-Failure (
+        "The BITS trigger returned HTTP " +
+        "$($triggerResponse.StatusCode)."
+    )
+
+    exit 1
+}
+
+Write-Success "BITS trigger endpoint is available."
+
+Write-Info "Checking the controlled dead-drop resolver..."
+
+try {
+    $resolverResponse = Invoke-WebRequest `
+        -Uri "http://$LabHostname`:$HttpPort/resolver/README.md" `
+        -UseBasicParsing `
+        -TimeoutSec 5
+}
+catch {
+    Write-Failure "The resolver endpoint is unavailable."
+    Write-Failure $_.Exception.Message
+    exit 1
+}
+
+$resolverMatch = [regex]::Match(
+    $resolverResponse.Content,
+    "\[Rudeltaktik\](?<value>[A-Za-z0-9+/=]+)!"
+)
+
+if (-not $resolverMatch.Success) {
+    Write-Failure (
+        "The resolver does not contain the expected " +
+        "[Rudeltaktik]<BASE64>! structure."
+    )
+
+    exit 1
+}
+
+try {
+    $decodedResolver = [System.Text.Encoding]::ASCII.GetString(
+        [System.Convert]::FromBase64String(
+            $resolverMatch.Groups["value"].Value
+        )
+    )
+}
+catch {
+    Write-Failure "The resolver contains an invalid Base64 value."
+    exit 1
+}
+
+$expectedResolver = "$UbuntuIP`:$BeaconPort"
+
+if ($decodedResolver -ne $expectedResolver) {
+    Write-Failure (
+        "Resolver mismatch. Expected '$expectedResolver', " +
+        "received '$decodedResolver'."
+    )
+
+    Write-Failure (
+        "Restart ubuntu_c2_server.py with " +
+        "--advertise-ip $UbuntuIP."
+    )
+
+    exit 1
+}
+
+Write-Success "Resolver decoded correctly: $decodedResolver"
+
+# ============================================================================
+# 6. Remove only previous UBoatRAT laboratory artefacts
+# ============================================================================
+
+Write-Info "Removing previous UBoatRAT laboratory state..."
+
+# Stop only a process whose executable path matches the lab-installed copy.
+try {
+    $labProcesses = Get-CimInstance Win32_Process |
+        Where-Object {
+            $_.ExecutablePath -and
+            $_.ExecutablePath.Equals(
+                $InstalledCopy,
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
+        }
+
+    foreach ($process in $labProcesses) {
+        Write-WarningMessage (
+            "Stopping previous laboratory process PID " +
+            "$($process.ProcessId)."
+        )
+
+        Stop-Process `
+            -Id $process.ProcessId `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
+}
+catch {
+    Write-WarningMessage (
+        "Could not enumerate previous lab processes: " +
+        $_.Exception.Message
+    )
+}
+
+$bitsJobRemoved = $false
+
+try {
+    Import-Module BitsTransfer -ErrorAction Stop
+
+    $labBitsJobs = @(
+        Get-BitsTransfer `
+            -AllUsers `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.DisplayName -eq $LabBitsJobName
+            }
+    )
+
+    foreach ($job in $labBitsJobs) {
+        $job |
+            Remove-BitsTransfer `
+                -Confirm:$false `
+                -ErrorAction SilentlyContinue
+
+        $bitsJobRemoved = $true
+    }
+}
+catch {
+    Write-WarningMessage (
+        "The BitsTransfer PowerShell module could not remove " +
+        "the previous job. Trying bitsadmin."
+    )
+}
+
+if (-not $bitsJobRemoved) {
+    & "$env:SystemRoot\System32\bitsadmin.exe" `
+        /cancel `
+        "$LabBitsJobName" `
+        2>$null |
+        Out-Null
+}
+
+if (Test-Path -LiteralPath $InstalledLabRoot) {
+    Remove-Item `
+        -LiteralPath $InstalledLabRoot `
+        -Recurse `
+        -Force `
+        -ErrorAction Stop
+}
+
+foreach ($temporaryArtefact in @(
+    $TempTriggerPath,
+    $BlockedLogPath
+)) {
+    Remove-Item `
+        -LiteralPath $temporaryArtefact `
+        -Force `
+        -ErrorAction SilentlyContinue
+}
+
+Write-Success "Previous lab-specific artefacts removed."
+
+Write-Info "Verifying the BITS baseline..."
+
+$remainingLabJobs = @()
+
+try {
+    $remainingLabJobs = @(
+        Get-BitsTransfer `
+            -AllUsers `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.DisplayName -eq $LabBitsJobName
+            }
+    )
+}
+catch {
+    # A bitsadmin verification follows below.
+}
+
+if ($remainingLabJobs.Count -gt 0) {
+    Write-Failure (
+        "The previous '$LabBitsJobName' job could not be removed."
+    )
+
+    exit 1
+}
+
+Write-Success (
+    "No previous '$LabBitsJobName' job remains."
+)
+
+# ============================================================================
+# 7. Enable Windows telemetry
+# ============================================================================
+
+Write-Info "Enabling the BITS Operational event log..."
+
+$wevtOutput = & "$env:SystemRoot\System32\wevtutil.exe" `
+    sl `
+    "Microsoft-Windows-Bits-Client/Operational" `
+    /e:true `
+    2>&1
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Failure "Could not enable the BITS Operational log."
+    Write-Failure ($wevtOutput -join " ")
+    exit 1
+}
+
+Write-Success "BITS Operational log enabled."
+
+Write-Info "Enabling process creation auditing..."
+
+$auditOutput = & "$env:SystemRoot\System32\auditpol.exe" `
+    /set `
+    '/subcategory:Process Creation' `
+    /success:enable `
+    2>&1
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Failure "Could not enable process creation auditing."
+    Write-Failure ($auditOutput -join " ")
+    exit 1
+}
+
+Write-Success "Security Event ID 4688 auditing enabled."
+
+Write-Info "Enabling command-line data in process creation events..."
+
+$AuditRegistryPath = (
+    "HKLM:\Software\Microsoft\Windows\" +
+    "CurrentVersion\Policies\System\Audit"
+)
+
+New-Item `
+    -Path $AuditRegistryPath `
+    -Force |
+    Out-Null
+
+New-ItemProperty `
+    -Path $AuditRegistryPath `
+    -Name "ProcessCreationIncludeCmdLine_Enabled" `
+    -PropertyType DWord `
+    -Value 1 `
+    -Force |
+    Out-Null
+
+Write-Success "Process command-line auditing enabled."
+
+# ============================================================================
+# 8. Verify BITS and Sysmon status
+# ============================================================================
+
+Write-Info "Checking the BITS service..."
+
+$bitsService = Get-CimInstance Win32_Service `
+    -Filter "Name='BITS'"
+
+if ($null -eq $bitsService) {
+    Write-Failure "The BITS service was not found."
+    exit 1
+}
+
+if ($bitsService.StartMode -eq "Disabled") {
+    Write-Failure "The BITS service is disabled."
+    exit 1
+}
+
+Write-Success (
+    "BITS service available. " +
+    "State: $($bitsService.State); " +
+    "Start mode: $($bitsService.StartMode)."
+)
+
+Write-Info "Checking Sysmon..."
+
+$sysmonService = Get-Service `
+    -Name "Sysmon*" `
+    -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+
+if ($null -eq $sysmonService) {
+    Write-WarningMessage "Sysmon is not installed."
+
+    Write-WarningMessage (
+        "The BITS and Security event-log portions will work, " +
+        "but Sysmon analysis will not."
+    )
+}
+elseif ($sysmonService.Status -ne "Running") {
+    Write-WarningMessage (
+        "Sysmon is installed but not running: " +
+        $sysmonService.Name
+    )
+}
+else {
+    Write-Success (
+        "Sysmon is running: " +
+        $sysmonService.Name
+    )
+
+    $SysmonConfigPath = Join-Path `
+        $LabDir `
+        "sysmon_uboatrat.xml"
+
+    if (-not (Test-Path -LiteralPath $SysmonConfigPath)) {
+        Write-WarningMessage (
+            "sysmon_uboatrat.xml is not present yet."
+        )
+
+        Write-WarningMessage (
+            "Sysmon Event ID 3 may be absent until the lab-specific " +
+            "configuration is applied."
+        )
+    }
+}
+
+# ============================================================================
+# 9. Report Defender status without modifying it
+# ============================================================================
+
+Write-Info "Reading Microsoft Defender status..."
+
+try {
+    $defenderStatus = Get-MpComputerStatus
+
+    Write-Host (
+        "    Antivirus enabled: " +
+        $defenderStatus.AntivirusEnabled
+    ) -ForegroundColor DarkGray
+
+    Write-Host (
+        "    Real-time protection: " +
+        $defenderStatus.RealTimeProtectionEnabled
+    ) -ForegroundColor DarkGray
+
+    Write-Success "Microsoft Defender configuration was not modified."
+}
+catch {
+    Write-WarningMessage (
+        "Microsoft Defender status could not be queried."
+    )
+}
+
+# Verify that Defender or another control has not removed the simulator.
+if (-not (Test-Path -LiteralPath $SimulatorPath)) {
+    Write-Failure (
+        "WinSvcHelper.exe disappeared during initialization. " +
+        "Check Windows Security protection history."
+    )
+
+    exit 1
+}
+
+# ============================================================================
+# 10. Record the laboratory session start
+# ============================================================================
+
+$sessionStartUtc = (Get-Date).ToUniversalTime()
+
+$sessionInformation = [ordered]@{
+    SessionStartUtc = $sessionStartUtc.ToString("O")
+    WindowsIP       = $WindowsIP
+    UbuntuIP        = $UbuntuIP
+    LabHostname     = $LabHostname
+    HttpPort        = $HttpPort
+    BeaconPort      = $BeaconPort
+    BitsJobName     = $LabBitsJobName
+    SimulatorSHA256 = $SimulatorHash
+    LabDirectory    = $LabDir
+}
+
+$sessionInformation |
+    ConvertTo-Json |
+    Set-Content `
+        -LiteralPath $SessionPath `
+        -Encoding UTF8
+
+Write-Success "Session information written to:"
+Write-Host "    $SessionPath" -ForegroundColor DarkGray
+
+# ============================================================================
+# Finish
+# ============================================================================
+
+Write-Host ""
+Write-Host "============================================================" `
+    -ForegroundColor DarkCyan
+Write-Host "       UBoatRAT laboratory initialization completed" `
+    -ForegroundColor Green
+Write-Host "============================================================" `
+    -ForegroundColor DarkCyan
+Write-Host ""
+
+Write-Host "Ubuntu server:" -ForegroundColor Cyan
+Write-Host "  $UbuntuIP" -ForegroundColor White
+Write-Host ""
+
+Write-Host "Wireshark display filter:" -ForegroundColor Cyan
+Write-Host (
+    "  ip.addr == $UbuntuIP && " +
+    "(tcp.port == $HttpPort || tcp.port == $BeaconPort)"
+) -ForegroundColor White
+Write-Host ""
+
+Write-Host "Optional Ubuntu tcpdump capture:" -ForegroundColor Cyan
+Write-Host (
+    "  sudo tcpdump -ni any " +
+    "'host $WindowsIP and " +
+    "(tcp port $HttpPort or tcp port $BeaconPort)' \"
+) -ForegroundColor White
+
+Write-Host (
+    "    -w ~/BnB/UBoatRAT/captures/uboatrat_lab.pcap"
+) -ForegroundColor White
+Write-Host ""
+
+Write-Host "Clean BITS baseline:" -ForegroundColor Cyan
+Write-Host "  bitsadmin /list /allusers" -ForegroundColor White
+Write-Host ""
+
+Write-Host "Run the simulator only after starting captures:" `
+    -ForegroundColor Cyan
+
+Write-Host "  cd `"$LabDir`"" -ForegroundColor White
+Write-Host "  .\WinSvcHelper.exe" -ForegroundColor White
+Write-Host ""
+
+Write-WarningMessage (
+    "The simulator has NOT been executed by this script."
+)
+
+Write-WarningMessage (
+    "Do not disable Microsoft Defender globally."
+)
