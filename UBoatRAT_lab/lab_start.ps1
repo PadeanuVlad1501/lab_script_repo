@@ -915,15 +915,9 @@ Write-Host (
 Write-Host ""
 
 Write-Host "Optional Ubuntu tcpdump capture:" -ForegroundColor Cyan
-Write-Host (
-    "  sudo tcpdump -ni any " +
-    "'host $WindowsIP and " +
-    "(tcp port $HttpPort or tcp port $BeaconPort)' \"
-) -ForegroundColor White
+$TcpdumpCommand = "sudo tcpdump -ni any 'host $WindowsIP and (tcp port $HttpPort or tcp port $BeaconPort)' -w ~/BnB/UBoatRAT/captures/uboatrat_lab.pcap"
 
-Write-Host (
-    "    -w ~/BnB/UBoatRAT/captures/uboatrat_lab.pcap"
-) -ForegroundColor White
+Write-Host "  $TcpdumpCommand" -ForegroundColor White
 Write-Host ""
 
 Write-Host "Clean BITS baseline:" -ForegroundColor Cyan
