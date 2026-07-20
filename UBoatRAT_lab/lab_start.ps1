@@ -680,28 +680,62 @@ Write-Success "Previous lab-specific artefacts removed."
 
 Write-Info "Verifying the BITS baseline..."
 
+$bitsVerificationSucceeded = $false
 $remainingLabJobs = @()
 
 try {
+    Import-Module BitsTransfer -ErrorAction Stop
+
     $remainingLabJobs = @(
         Get-BitsTransfer `
-            -AllUsers `
-            -ErrorAction SilentlyContinue |
+            -AllUsers `=
+            -ErrorAction Stop |
             Where-Object {
                 $_.DisplayName -eq $LabBitsJobName
             }
     )
+
+    $bitsVerificationSucceeded = $true
 }
 catch {
-    # A bitsadmin verification follows below.
+    Write-WarningMessage (
+        "Could not verify the BITS queue through the " +
+        "BitsTransfer module. Trying bitsadmin."
+    )
 }
 
-if ($remainingLabJobs.Count -gt 0) {
-    Write-Failure (
-        "The previous '$LabBitsJobName' job could not be removed."
-    )
+if ($bitsVerificationSucceeded) {
+    if ($remainingLabJobs.Count -gt 0) {
+        Write-Failure (
+            "The previous '$LabBitsJobName' job could not be removed."
+        )
 
-    exit 1
+        exit 1
+    }
+}
+else {
+    $bitsListOutput = & "$env:SystemRoot\System32\bitsadmin.exe" `
+        /list `
+        /allusers `
+        /verbose `
+        2>&1
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Failure "Could not verify the BITS baseline."
+        Write-Failure ($bitsListOutput -join " ")
+        exit 1
+    }
+
+    if (
+        ($bitsListOutput -join "`n") -match
+        [regex]::Escape($LabBitsJobName)
+    ) {
+        Write-Failure (
+            "The previous '$LabBitsJobName' job still exists."
+        )
+
+        exit 1
+    }
 }
 
 Write-Success (
