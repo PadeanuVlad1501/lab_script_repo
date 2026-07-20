@@ -235,6 +235,14 @@ if (-not (Test-IsAdministrator)) {
 
 Write-Success "Administrator privileges confirmed."
 
+Write-Info (
+    "Running under Windows PowerShell " +
+    $PSVersionTable.PSVersion.ToString() +
+    " [" +
+    $PSVersionTable.PSEdition +
+    "]"
+)
+
 Set-Location -LiteralPath $LabDir
 
 Write-Info "Laboratory directory: $LabDir"
