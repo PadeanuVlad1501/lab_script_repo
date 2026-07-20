@@ -43,11 +43,11 @@ $SimulatorPath = Join-Path $LabDir "WinSvcHelper.exe"
 $MarkerPath    = Join-Path $LabDir "UBoatRAT_LAB.marker"
 $SessionPath   = Join-Path $LabDir "lab_session.json"
 
-$InstalledLabRoot = "C:\ProgramData\UBoatRAT_Lab"
+$InstalledLabRoot = Join-Path $LabDir "runtime"
 $InstalledCopy    = Join-Path $InstalledLabRoot "svchost.exe"
 
-$TempTriggerPath = Join-Path $env:TEMP "uboat_lab_trigger.dat"
-$BlockedLogPath  = Join-Path $env:TEMP "UBoatRAT_Lab_Blocked.log"
+$TempTriggerPath = Join-Path $InstalledLabRoot "uboat_lab_trigger.dat"
+$BlockedLogPath  = Join-Path $LabDir "UBoatRAT_Lab_Blocked.log"
 
 $HostsFile       = Join-Path $env:SystemRoot "System32\drivers\etc\hosts"
 $HostsBackupPath = Join-Path $LabDir "hosts.pre-uboatrat.bak"
@@ -688,7 +688,7 @@ try {
 
     $remainingLabJobs = @(
         Get-BitsTransfer `
-            -AllUsers `=
+            -AllUsers `
             -ErrorAction Stop |
             Where-Object {
                 $_.DisplayName -eq $LabBitsJobName
