@@ -51,9 +51,11 @@ $SessionPath      = Join-Path $LabDir "lab_session.json"
 $SysmonConfigPath = Join-Path $LabDir "sysmon_uboatrat.xml"
 $SysmonDumpPath   = Join-Path $LabDir "sysmon_active_config.txt"
 
+$ToolsDir = Join-Path $LabDir "tools"
+
 $SysmonToolCandidates = @(
-    "C:\Tools\Sysmon\Sysmon64.exe",
-    "C:\Tools\Sysmon\Sysmon.exe",
+    (Join-Path $ToolsDir "Sysmon\Sysmon64.exe"),
+    (Join-Path $ToolsDir "Sysmon\Sysmon.exe"),
     "C:\Windows\Sysmon64.exe",
     "C:\Windows\Sysmon.exe"
 )
