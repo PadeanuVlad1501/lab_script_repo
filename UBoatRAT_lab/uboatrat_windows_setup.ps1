@@ -63,7 +63,7 @@ $RuntimeDir = Join-Path $LabDir "runtime"
 $InstalledCopy = Join-Path $RuntimeDir "svchost.exe"
 $ManifestPath = Join-Path $LabDir "setup_manifest.json"
 
-$ToolsRoot = "C:\Tools"
+$ToolsRoot = "$LabDir\tools"
 
 $ProcmonPath = Join-Path $ToolsRoot "Procmon\Procmon64.exe"
 $ProcExpPath = Join-Path $ToolsRoot "ProcessExplorer\procexp64.exe"
