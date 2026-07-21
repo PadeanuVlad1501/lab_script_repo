@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Benign UBoatRAT laboratory Sysmon configuration
+
+    Purpose:
+      Capture only the process, network, file-creation, and DNS telemetry
+      required by the controlled UBoatRAT behavior-reconstruction lab.
+
+    Expected laboratory path:
+      C:\Users\Administrator\Desktop\Labs\UBoatRAT
+
+    Expected network activity:
+      TCP/8080 - inert BITS trigger and controlled resolver
+      TCP/9001 - one fixed, one-shot benign beacon
+
+    This configuration does not execute anything and does not create,
+    modify, or remove laboratory artifacts.
+
+    Important:
+      Applying this file replaces the active Sysmon filtering configuration
+      until the VM is reverted or another configuration is applied.
+-->
+<Sysmon schemaversion="4.50">
+  <HashAlgorithms>SHA256,IMPHASH</HashAlgorithms>
+
+  <EventFiltering>
+
+    <!-- Event ID 1: Process creation -->
+    <RuleGroup name="UBoatRAT Lab - Process Creation" groupRelation="or">
+      <ProcessCreate onmatch="include">
+
+        <Rule name="Original benign simulator" groupRelation="or">
+          <Image condition="is">C:\Users\Administrator\Desktop\Labs\UBoatRAT\WinSvcHelper.exe</Image>
+        </Rule>
+
+        <Rule name="BITS callback simulator copy" groupRelation="or">
+          <Image condition="is">C:\Users\Administrator\Desktop\Labs\UBoatRAT\runtime\svchost.exe</Image>
+        </Rule>
+
+        <Rule name="Lab bootstrap command shell" groupRelation="and">
+          <Image condition="end with">\cmd.exe</Image>
+          <CommandLine condition="contains">C:\Users\Administrator\Desktop\Labs\UBoatRAT\runtime\init.bat</CommandLine>
+        </Rule>
+
+        <Rule name="Lab-specific bitsadmin execution" groupRelation="and">
+          <Image condition="end with">\bitsadmin.exe</Image>
+          <CommandLine condition="contains">UBoatLab_Persistence</CommandLine>
+        </Rule>
+
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- Event ID 3: Network connections -->
+    <RuleGroup name="UBoatRAT Lab - Network Connections" groupRelation="or">
+      <NetworkConnect onmatch="include">
+
+        <!-- Captures both the BITS-hosted system svchost.exe connection and
+             the runtime callback's controlled resolver request. -->
+        <Rule name="Lab HTTP traffic from svchost" groupRelation="and">
+          <Image condition="end with">\svchost.exe</Image>
+          <DestinationPort condition="is">8080</DestinationPort>
+        </Rule>
+
+        <Rule name="Fixed one-shot beacon" groupRelation="and">
+          <Image condition="is">C:\Users\Administrator\Desktop\Labs\UBoatRAT\runtime\svchost.exe</Image>
+          <DestinationPort condition="is">9001</DestinationPort>
+        </Rule>
+
+      </NetworkConnect>
+    </RuleGroup>
+
+    <!-- Event ID 11: File creation -->
+    <RuleGroup name="UBoatRAT Lab - File Creation" groupRelation="or">
+      <FileCreate onmatch="include">
+
+        <Rule name="Runtime artifacts" groupRelation="or">
+          <TargetFilename condition="begin with">C:\Users\Administrator\Desktop\Labs\UBoatRAT\runtime\</TargetFilename>
+        </Rule>
+
+        <Rule name="Fail-closed execution log" groupRelation="or">
+          <TargetFilename condition="is">C:\Users\Administrator\Desktop\Labs\UBoatRAT\UBoatRAT_Lab_Blocked.log</TargetFilename>
+        </Rule>
+
+      </FileCreate>
+    </RuleGroup>
+
+    <!-- Event ID 22: DNS queries
+         A hosts-file resolution may not always produce a DNS event, so this
+         event is useful when present but is not a mandatory success check.
+    -->
+    <RuleGroup name="UBoatRAT Lab - DNS Queries" groupRelation="or">
+      <DnsQuery onmatch="include">
+
+        <Rule name="Original simulator resolver lookup" groupRelation="and">
+          <Image condition="is">C:\Users\Administrator\Desktop\Labs\UBoatRAT\WinSvcHelper.exe</Image>
+          <QueryName condition="is">uboat-c2.test</QueryName>
+        </Rule>
+
+        <Rule name="Callback resolver lookup" groupRelation="and">
+          <Image condition="is">C:\Users\Administrator\Desktop\Labs\UBoatRAT\runtime\svchost.exe</Image>
+          <QueryName condition="is">uboat-c2.test</QueryName>
+        </Rule>
+
+      </DnsQuery>
+    </RuleGroup>
+
+  </EventFiltering>
+</Sysmon>
