@@ -249,7 +249,10 @@ namespace UBoatRATLab
              * SetNotifyCmdLine launches the fixed copied simulator with the
              * fixed --bits-callback argument.
              */
-
+            string callbackParameters =
+                "\\\"" +
+                InstalledCopy +
+                "\\\" --bits-callback";
             string[] batchLines =
             {
                 "@echo off",
@@ -283,10 +286,10 @@ namespace UBoatRATLab
                 "",
                 "if errorlevel 1 exit /b 11",
                 "",
-                "bitsadmin /setnotifycmdline \"" +
+               "bitsadmin /setnotifycmdline \"" +
                     JobName + "\" \"" +
-                    InstalledCopy + "\" " +
-                    "\"--bits-callback\" >> \"" +
+                    InstalledCopy + "\" \"" +
+                    callbackParameters + "\" >> \"" +
                     BitsAdminLog + "\" 2>&1",
                 "",
                 "if errorlevel 1 exit /b 12",
