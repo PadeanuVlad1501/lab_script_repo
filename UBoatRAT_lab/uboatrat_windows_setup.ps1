@@ -50,7 +50,7 @@ $RepoBase = (
 
 # Update this value whenever WinSvcHelper.exe is rebuilt intentionally.
 $ExpectedSimulatorSha256 = (
-    "a21580d099091c85a5b71ff3c8117e8434abd601a9a2cde723cc46c17898ec4d"
+    "f5a7ccb892ede05f3e5a9c3b8e7622031689eafd48f3f5dd0342480e108c3f8e"
 )
 
 $ExpectedMarkerContent = "BENIGN UBOATRAT TRAINING LAB"
