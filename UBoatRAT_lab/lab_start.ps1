@@ -383,6 +383,60 @@ function Assert-SysmonConfiguration {
     }
 }
 
+function Invoke-NativeTool {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$Arguments = @()
+    )
+
+    $previousErrorActionPreference =
+        $ErrorActionPreference
+
+    $rawOutput = @()
+    $exitCode = $null
+
+    try {
+        # Windows PowerShell 5.1 can convert native stderr into
+        # ErrorRecord objects. Do not let the global "Stop" setting
+        # terminate execution before $LASTEXITCODE is captured.
+        $ErrorActionPreference = "Continue"
+
+        $rawOutput = @(
+            & $FilePath @Arguments 2>&1
+        )
+
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference =
+            $previousErrorActionPreference
+    }
+
+    $cleanOutput = @(
+        $rawOutput |
+            ForEach-Object {
+                $line = $_.ToString()
+
+                if (
+                    -not [string]::IsNullOrWhiteSpace($line) -and
+                    $line -ne
+                        "System.Management.Automation.RemoteException"
+                ) {
+                    $line
+                }
+            }
+    )
+
+    return [pscustomobject]@{
+        ExitCode = [int]$exitCode
+        Output   = $cleanOutput
+    }
+}
+
 function Initialize-LabSysmon {
     Assert-SysmonConfiguration -Path $SysmonConfigPath
 
@@ -416,14 +470,17 @@ function Initialize-LabSysmon {
             "Installing it with the UBoatRAT lab configuration..."
         )
 
-        $sysmonOutput = & $sysmonExecutable `
-            -accepteula `
-            -i `
-            $SysmonConfigPath `
-            2>&1
+        $sysmonResult = Invoke-NativeTool `
+    -FilePath $sysmonExecutable `
+    -Arguments @(
+        "-accepteula",
+        "-i",
+        $SysmonConfigPath
+    )
 
-        $sysmonExitCode = $LASTEXITCODE
-        $sysmonAction = "InstalledForSession"
+$sysmonOutput = $sysmonResult.Output
+$sysmonExitCode = $sysmonResult.ExitCode
+$sysmonAction = "InstalledForSession"
     }
     else {
         Write-Info (
@@ -431,22 +488,32 @@ function Initialize-LabSysmon {
             "for this disposable VM session..."
         )
 
-        $sysmonOutput = & $sysmonExecutable `
-            -c `
-            $SysmonConfigPath `
-            2>&1
+        $sysmonResult = Invoke-NativeTool `
+    -FilePath $sysmonExecutable `
+    -Arguments @(
+        "-c",
+        $SysmonConfigPath
+    )
 
-        $sysmonExitCode = $LASTEXITCODE
-        $sysmonAction = "ReconfiguredForSession"
+$sysmonOutput = $sysmonResult.Output
+$sysmonExitCode = $sysmonResult.ExitCode
+$sysmonAction = "ReconfiguredForSession"
     }
 
     if ($sysmonExitCode -ne 0) {
-        throw (
-            "Sysmon configuration failed with exit code " +
-            "$sysmonExitCode. Output: " +
-            ($sysmonOutput -join " ")
-        )
+    $outputText = if ($sysmonOutput.Count -gt 0) {
+        $sysmonOutput -join " | "
     }
+    else {
+        "<no output>"
+    }
+
+    throw (
+        "Sysmon configuration failed with exit code " +
+        "$sysmonExitCode. Output: " +
+        $outputText
+    )
+}
 
     $sysmonService = Get-Service `
         -Name "Sysmon", "Sysmon64" `
@@ -475,9 +542,16 @@ function Initialize-LabSysmon {
     if ($sysmonService.Status -ne "Running") {
         throw "The Sysmon service is not running."
     }
+    
+$configurationDumpResult = Invoke-NativeTool `
+    -FilePath $sysmonExecutable `
+    -Arguments @("-c")
 
-    $configurationDump = & $sysmonExecutable -c 2>&1
-    $configurationDumpExitCode = $LASTEXITCODE
+$configurationDump =
+    $configurationDumpResult.Output
+
+$configurationDumpExitCode =
+    $configurationDumpResult.ExitCode
 
     if ($configurationDumpExitCode -ne 0) {
         throw (
